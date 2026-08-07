@@ -124,7 +124,7 @@ export function getBotInstance(botToken: string, tenantId: string): Bot {
 
   // Handle Callback Queries (Inline Button Clicks)
   bot.on('callback_query:data', async (ctx) => {
-    const data = ctx.callback_query.data;
+    const data = ctx.callbackQuery.data;
     const tgId = String(ctx.from?.id);
 
     try {
