@@ -1,0 +1,194 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id            String               @id @default(cuid())
+  storeName     String
+  currency      String               @default("EGP")
+  reminderDays  Int                  @default(3)
+  notifEmail    String?
+  saasBalance   Float                @default(0.0)
+  saasPlan      String               @default("free_trial") // "free_trial" | "basic" | "premium"
+  saasStatus    String               @default("active")     // "active" | "suspended" | "expired"
+  saasExpiry    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  users         User[]
+  customers     Customer[]
+  services      Service[]
+  expenses      Expense[]
+  adCampaigns   AdCampaign[]
+  botSettings   BotSettings?
+  subscriptions Subscription[]
+  smsLogs       SMSLog[]
+  saasPayments  SaaSPaymentRequest[]
+}
+
+model BotSettings {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  botToken     String?
+  botUsername  String?
+  isActive     Boolean  @default(false)
+  welcomeMsg   String?
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id          String   @id @default(cuid())
+  tenantId    String
+  username    String   @unique
+  password    String
+  role        String   @default("user") // "admin" | "user"
+  permissions String[]
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Customer {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  name               String
+  phone              String
+  email              String?
+  tgId               String?            // Telegram Chat/User ID
+  tgUsername         String?
+  walletBalance      Float              @default(0.0)
+  notes              String?
+  createdBy          String?
+  createdAt          DateTime           @default(now())
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptions      Subscription[]
+  walletTransactions WalletTransaction[]
+  paymentRequests    PaymentRequest[]
+
+  @@unique([tenantId, phone])
+}
+
+model WalletTransaction {
+  id          String   @id @default(cuid())
+  customerId  String
+  amount      Float    // Positive for deposits, negative for purchases
+  type        String   // "deposit" | "purchase" | "refund"
+  description String?
+  createdAt   DateTime @default(now())
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model PaymentRequest {
+  id               String   @id @default(cuid())
+  customerId       String
+  amount           Float    // Base amount requested to charge
+  fraction         Float    // Fractional EGP (e.g. 0.12) added for verification
+  senderIdentifier String?  // The sender's phone number or InstaPay address
+  method           String   // "vodafone_cash" | "instapay"
+  screenshotUrl    String?
+  status           String   @default("pending") // "pending" | "approved" | "rejected"
+  transactionId    String?  // Vodafone/InstaPay transaction reference ID
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  customer         Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model Service {
+  id                  String         @id @default(cuid())
+  tenantId            String
+  name                String
+  defaultDuration     Int            @default(30) // in days
+  defaultSellingPrice Float
+  defaultCostPrice    Float          @default(0.0)
+  createdAt           DateTime       @default(now())
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptions       Subscription[]
+  accountPool         AccountPool[]
+}
+
+model AccountPool {
+  id             String        @id @default(cuid())
+  serviceId      String
+  credentials    String        // "email:pass" or "license_key"
+  isUsed         Boolean       @default(false)
+  usedAt         DateTime?
+  subscriptionId String?       @unique
+  createdAt      DateTime      @default(now())
+  service        Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(name: "SubToAccount", fields: [subscriptionId], references: [id], onDelete: SetNull)
+}
+
+model Subscription {
+  id               String       @id @default(cuid())
+  tenantId         String
+  customerId       String
+  serviceId        String
+  package          String?      // e.g. "Monthly", "Annual"
+  startDate        DateTime
+  endDate          DateTime
+  sellingPrice     Float
+  costPrice        Float
+  status           String       @default("active") // "active" | "expiring_soon" | "expired"
+  notes            String?
+  createdBy        String?
+  createdAt        DateTime     @default(now())
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer         Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service          Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  accountDelivered AccountPool? @relation(name: "SubToAccount")
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  tenantId  String
+  category  String
+  amount    Float
+  date      DateTime
+  notes     String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model AdCampaign {
+  id        String   @id @default(cuid())
+  tenantId  String
+  platform  String
+  amount    Float
+  date      DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SMSLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  sender     String   // e.g., "Vodafone" or "NBE" (National Bank of Egypt)
+  message    String
+  receivedAt DateTime
+  isMatched  Boolean  @default(false)
+  matchedId  String?  // Reference to matched PaymentRequest
+  createdAt  DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SaaSPaymentRequest {
+  id               String   @id @default(cuid())
+  tenantId         String
+  amount           Float
+  method           String   // "vodafone_cash" | "instapay"
+  senderIdentifier String
+  status           String   @default("pending") // "pending" | "approved" | "rejected"
+  notes            String?
+  createdAt        DateTime @default(now())
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
