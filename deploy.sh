@@ -19,8 +19,9 @@ npx prisma db push
 echo "🌱 Seeding database..."
 npx -y tsx prisma/seed.ts
 
-# 5. Build production bundle of Next.js
-echo "🏗️ Building production Next.js application..."
+# 5. Generate Prisma Client and Build production bundle of Next.js
+echo "🏗️ Generating Prisma Client and Building Next.js application..."
+npx prisma generate
 npm run build
 
 # 6. Restart/Start the application in background using PM2
