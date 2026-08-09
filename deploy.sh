@@ -17,7 +17,7 @@ npx prisma db push
 
 # 4. Seed database with initial accounts (superadmin / demo)
 echo "🌱 Seeding database..."
-npx tsx prisma/seed.ts
+npx -y tsx prisma/seed.ts
 
 # 5. Build production bundle of Next.js
 echo "🏗️ Building production Next.js application..."
