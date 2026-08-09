@@ -29,6 +29,6 @@ npm run build
 
 # 6. Restart/Start the application in background using PM2
 echo "🔄 Starting application with PM2..."
-pm2 restart saas-subscription-manager || pm2 start npm --name "saas-subscription-manager" -- run start
+pm2 restart saas-subscription-manager || pm2 start npm --name "saas-subscription-manager" -- run start -- -p 3010
 
 echo "🎉 Deployment completed successfully and application is live!"
