@@ -15,13 +15,16 @@ npm install
 echo "🗄️ Pushing database schema..."
 npx prisma db push
 
-# 4. Seed database with initial accounts (superadmin / demo)
+# 4. Generate Prisma Client
+echo "🏗️ Generating Prisma Client..."
+npx prisma generate
+
+# 5. Seed database with initial accounts (superadmin / demo)
 echo "🌱 Seeding database..."
 npx -y tsx prisma/seed.ts
 
-# 5. Generate Prisma Client and Build production bundle of Next.js
-echo "🏗️ Generating Prisma Client and Building Next.js application..."
-npx prisma generate
+# 6. Build production bundle of Next.js
+echo "🏗️ Building production Next.js application..."
 npm run build
 
 # 6. Restart/Start the application in background using PM2
