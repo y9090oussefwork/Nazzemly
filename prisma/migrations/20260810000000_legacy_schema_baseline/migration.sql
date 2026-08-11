@@ -1,3 +1,6 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateTable
 CREATE TABLE "Tenant" (
     "id" TEXT NOT NULL,
@@ -5,6 +8,10 @@ CREATE TABLE "Tenant" (
     "currency" TEXT NOT NULL DEFAULT 'EGP',
     "reminderDays" INTEGER NOT NULL DEFAULT 3,
     "notifEmail" TEXT,
+    "saasBalance" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    "saasPlan" TEXT NOT NULL DEFAULT 'free_trial',
+    "saasStatus" TEXT NOT NULL DEFAULT 'active',
+    "saasExpiry" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -169,6 +176,20 @@ CREATE TABLE "SMSLog" (
     CONSTRAINT "SMSLog_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "SaaSPaymentRequest" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "method" TEXT NOT NULL,
+    "senderIdentifier" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SaaSPaymentRequest_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "BotSettings_tenantId_key" ON "BotSettings"("tenantId");
 
@@ -222,3 +243,6 @@ ALTER TABLE "AdCampaign" ADD CONSTRAINT "AdCampaign_tenantId_fkey" FOREIGN KEY (
 
 -- AddForeignKey
 ALTER TABLE "SMSLog" ADD CONSTRAINT "SMSLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SaaSPaymentRequest" ADD CONSTRAINT "SaaSPaymentRequest_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
