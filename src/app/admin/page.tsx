@@ -179,7 +179,7 @@ export default function SuperAdminPage() {
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="font-black text-sm tracking-wide text-white">Trust Nexus SaaS</h2>
+            <h2 className="font-black text-sm tracking-wide text-white">Nazzemly — نظّملي</h2>
             <span className="text-[10px] text-zinc-500 font-bold">لوحة تحكم المشرف العام</span>
           </div>
         </div>

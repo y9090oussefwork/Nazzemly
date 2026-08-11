@@ -21,7 +21,7 @@ const notoSansArabic = Noto_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "نظام إدارة الاشتراكات الرقمية - Trust Nexus",
+  title: "Nazzemly — نظّملي | إدارة الاشتراكات الرقمية",
   description: "لوحة تحكم إدارة الاشتراكات الرقمية وحسابات العملاء وبوتات التيلجرام",
 };
 

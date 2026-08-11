@@ -71,7 +71,7 @@ async function main() {
         create: {
           id: 'system_tenant',
           slug: 'platform',
-          storeName: 'SaaS Platform',
+          storeName: 'Nazzemly — نظّملي',
           currency: 'EGP',
           saasStatus: 'active',
           maxUsers: 10,
