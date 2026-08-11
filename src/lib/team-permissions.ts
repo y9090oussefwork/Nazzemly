@@ -1,0 +1,18 @@
+export const TEAM_PERMISSIONS = [
+  'dashboard',
+  'customers',
+  'customers.write',
+  'customers.delete',
+  'deals',
+  'tasks',
+  'team',
+  'services',
+  'subscriptions',
+  'payments',
+  'expenses',
+  'advertising',
+  'bot',
+  'billing',
+  'settings',
+  'audit',
+] as const;

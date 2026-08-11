@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect, react-hooks/immutability */
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
@@ -16,10 +17,8 @@ import {
   LayoutDashboard,
   Users,
   Wallet,
-  Clock,
   Plus,
   Edit,
-  Trash2,
   RefreshCw,
   LogOut,
   ShieldCheck,
@@ -27,6 +26,7 @@ import {
   X,
   Loader2,
   Coins,
+  LifeBuoy,
 } from 'lucide-react';
 
 export default function SuperAdminPage() {
@@ -66,7 +66,7 @@ export default function SuperAdminPage() {
       }
     }
     loadUser();
-  }, [mounted]);
+  }, [mounted, router]);
 
   const refreshAllData = async () => {
     setLoading(true);
@@ -156,26 +156,26 @@ export default function SuperAdminPage() {
 
     if (diff < 0) return <span className="text-red-500 font-bold">منتهي منذ {Math.abs(diff)} يوم</span>;
     if (diff === 0) return <span className="text-amber-500 font-bold">ينتهي اليوم</span>;
-    return <span className="text-green-500 font-medium">{end.toLocaleDateString('en-GB')} ({diff} يوم متبقي)</span>;
+    return <span className="text-emerald-500 font-medium">{end.toLocaleDateString('en-GB')} ({diff} يوم متبقي)</span>;
   };
 
   if (!mounted) return null;
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex" dir="rtl">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex" dir="rtl">
       
       {/* 1. SIDEBAR */}
       <aside className="w-72 bg-zinc-900/40 border-l border-zinc-800/80 backdrop-blur-xl flex flex-col p-6 h-screen sticky top-0">
         <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/80 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/25">
+          <div className="w-10 h-10 bg-gradient-to-tr from-emerald-500 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/25">
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -187,7 +187,7 @@ export default function SuperAdminPage() {
         <nav className="flex-1 space-y-1.5 overflow-y-auto">
           <button
             onClick={() => setActiveTab('stats')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-all duration-150 ${activeTab === 'stats' ? 'bg-gradient-to-l from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-colors duration-150 ${activeTab === 'stats' ? 'bg-gradient-to-l from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
           >
             <LayoutDashboard className="w-5 h-5" />
             <span>نظرة عامة وإحصائيات</span>
@@ -195,7 +195,7 @@ export default function SuperAdminPage() {
 
           <button
             onClick={() => setActiveTab('merchants')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-all duration-150 ${activeTab === 'merchants' ? 'bg-gradient-to-l from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-colors duration-150 ${activeTab === 'merchants' ? 'bg-gradient-to-l from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
           >
             <Users className="w-5 h-5" />
             <span>إدارة وتتبع التجار</span>
@@ -203,20 +203,34 @@ export default function SuperAdminPage() {
 
           <button
             onClick={() => setActiveTab('payments')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-all duration-150 ${activeTab === 'payments' ? 'bg-gradient-to-l from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-colors duration-150 ${activeTab === 'payments' ? 'bg-gradient-to-l from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
           >
             <Coins className="w-5 h-5" />
             <span>طلبات تفعيل وحسابات التجار</span>
             {payments.filter(p => p.status === 'pending').length > 0 && (
-              <span className="mr-auto px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-[10px] font-extrabold rounded-full">
+              <span className="mr-auto px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold rounded-full">
                 {payments.filter(p => p.status === 'pending').length}
               </span>
             )}
           </button>
+          <button
+            onClick={() => router.push('/admin/operations')}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer text-zinc-400 hover:bg-zinc-800/50 hover:text-white transition-colors duration-150"
+          >
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+            <span>الباقات وسجل التدقيق</span>
+          </button>
+          <button
+            onClick={() => router.push('/admin/support')}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer text-zinc-400 hover:bg-zinc-800/50 hover:text-white transition-colors duration-150"
+          >
+            <LifeBuoy className="w-5 h-5 text-emerald-400" />
+            <span>دعم التجار</span>
+          </button>
         </nav>
 
         <div className="pt-4 border-t border-zinc-800/80 mt-auto flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-950 flex items-center justify-center font-bold text-indigo-400 text-xs">
+          <div className="w-9 h-9 rounded-xl bg-emerald-950 flex items-center justify-center font-bold text-emerald-400 text-xs">
             SA
           </div>
           <div className="flex-1 min-w-0">
@@ -244,13 +258,13 @@ export default function SuperAdminPage() {
               {activeTab === 'merchants' && 'إدارة المتاجر وحسابات التجار'}
               {activeTab === 'payments' && 'فحص طلبات شحن المتاجر المالي'}
             </h1>
-            {loading && <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />}
+            {loading && <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />}
           </div>
 
           <button
             onClick={refreshAllData}
             disabled={loading}
-            className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white rounded-xl cursor-pointer transition-all duration-150"
+            className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white rounded-xl cursor-pointer transition-colors duration-150"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -265,7 +279,7 @@ export default function SuperAdminPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 
                 <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-2xl p-6 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400">
                     <Users className="w-6 h-6" />
                   </div>
                   <div>
@@ -275,7 +289,7 @@ export default function SuperAdminPage() {
                 </div>
 
                 <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-2xl p-6 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-400">
+                  <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400">
                     <Check className="w-6 h-6" />
                   </div>
                   <div>
@@ -318,7 +332,7 @@ export default function SuperAdminPage() {
                     setCreateForm({ storeName: '', usernameInput: '', passwordInput: '' });
                     setModalType('create');
                   }}
-                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/10 cursor-pointer flex items-center gap-2"
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/10 cursor-pointer flex items-center gap-2"
                 >
                   <Plus className="w-4 h-4" />
                   <span>إضافة متجر تاجر جديد</span>
@@ -352,7 +366,7 @@ export default function SuperAdminPage() {
                         </td>
                         <td className="p-4 text-xs">{formatExpiry(m.saasExpiry)}</td>
                         <td className="p-4 text-xs">
-                          <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${m.saasStatus === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
+                          <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${m.saasStatus === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
                             {m.saasStatus === 'active' ? 'نشط' : 'موقف'}
                           </span>
                         </td>
@@ -408,12 +422,12 @@ export default function SuperAdminPage() {
                       <tr key={p.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 transition-colors">
                         <td className="p-4 text-xs text-zinc-500">{new Date(p.createdAt).toLocaleString('en-GB')}</td>
                         <td className="p-4 font-bold text-xs text-white">{p.tenant.storeName}</td>
-                        <td className="p-4 text-xs text-indigo-400 font-bold">{p.amount.toFixed(2)} EGP</td>
+                        <td className="p-4 text-xs text-emerald-400 font-bold">{p.amount.toFixed(2)} EGP</td>
                         <td className="p-4 text-xs text-zinc-300 font-bold">{p.method === 'instapay' ? 'إنستا باي' : 'فودافون كاش'}</td>
                         <td className="p-4 text-xs text-zinc-400 font-semibold">{p.senderIdentifier}</td>
                         <td className="p-4 text-xs text-zinc-500 max-w-xs truncate">{p.notes || '-'}</td>
                         <td className="p-4 text-xs">
-                          <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${p.status === 'approved' ? 'bg-green-500/15 text-green-400' : p.status === 'rejected' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                          <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg ${p.status === 'approved' ? 'bg-emerald-500/15 text-emerald-400' : p.status === 'rejected' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
                             {p.status === 'approved' && 'تم القبول'}
                             {p.status === 'rejected' && 'مرفوض'}
                             {p.status === 'pending' && 'معلق مراجعة'}
@@ -424,14 +438,14 @@ export default function SuperAdminPage() {
                             <div className="flex gap-2">
                               <button
                                 onClick={() => handleApprovePayment(p.id)}
-                                className="p-1.5 bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl cursor-pointer hover:bg-green-500/20 transition-all"
+                                className="p-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl cursor-pointer hover:bg-emerald-500/20 transition-colors"
                                 title="قبول وشحن"
                               >
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handleRejectPayment(p.id)}
-                                className="p-1.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl cursor-pointer hover:bg-red-500/20 transition-all"
+                                className="p-1.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl cursor-pointer hover:bg-red-500/20 transition-colors"
                                 title="رفض الطلب"
                               >
                                 <X className="w-3.5 h-3.5" />
@@ -466,7 +480,7 @@ export default function SuperAdminPage() {
                     value={createForm.storeName}
                     onChange={(e) => setCreateForm({ ...createForm, storeName: e.target.value })}
                     placeholder="مثال: متجر كابونجا الرقمي"
-                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
@@ -477,7 +491,7 @@ export default function SuperAdminPage() {
                     value={createForm.usernameInput}
                     onChange={(e) => setCreateForm({ ...createForm, usernameInput: e.target.value })}
                     placeholder="اسم تسجيل الدخول للتاجر"
-                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500 text-left"
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left"
                     dir="ltr"
                     required
                   />
@@ -488,7 +502,7 @@ export default function SuperAdminPage() {
                     type="password"
                     value={createForm.passwordInput}
                     onChange={(e) => setCreateForm({ ...createForm, passwordInput: e.target.value })}
-                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500 text-left"
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left"
                     dir="ltr"
                     required
                   />
@@ -498,7 +512,7 @@ export default function SuperAdminPage() {
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+                    className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl cursor-pointer"
                   >
                     إنشاء حساب المتجر
                   </button>
@@ -570,7 +584,7 @@ export default function SuperAdminPage() {
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl cursor-pointer"
+                    className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl cursor-pointer"
                   >
                     تحديث البيانات
                   </button>

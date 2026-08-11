@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
@@ -21,6 +22,12 @@ export default function LoginPage() {
     return null;
   }
 
+  const isLocalDemo = process.env.NODE_ENV !== 'production';
+  const fillDemoAccount = (account: 'owner' | 'merchant') => {
+    setUsername(account === 'owner' ? 'test_owner' : 'test_merchant');
+    setPassword(account === 'owner' ? 'TestOwner!2026' : 'TestMerchant!2026');
+    setError(null);
+  };
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -66,6 +73,16 @@ export default function LoginPage() {
         {error && (
           <div className="mb-6 p-4 bg-red-950/40 border border-red-900/60 text-red-300 text-xs font-semibold rounded-2xl text-right animate-shake">
             ⚠️ {error}
+          </div>
+        )}
+
+        {isLocalDemo && (
+          <div className="mb-6 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-right">
+            <p className="text-xs font-bold text-emerald-200">بيانات اختبار محلية</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => fillDemoAccount('owner')} className="rounded-xl border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-100 transition-colors duration-150 hover:bg-emerald-500/10 active:scale-[0.98]">ملء بيانات المالك</button>
+              <button type="button" onClick={() => fillDemoAccount('merchant')} className="rounded-xl border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-100 transition-colors duration-150 hover:bg-emerald-500/10 active:scale-[0.98]">ملء بيانات التاجر</button>
+            </div>
           </div>
         )}
 

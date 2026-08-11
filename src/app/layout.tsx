@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { ReactNode } from "react";
+import { Geist, Geist_Mono, Noto_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,16 +13,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const notoSansArabic = Noto_Sans_Arabic({
+  variable: "--font-arabic",
+  subsets: ["arabic", "latin"],
+  weight: "variable",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "نظام إدارة الاشتراكات الرقمية - Trust Nexus",
   description: "لوحة تحكم إدارة الاشتراكات الرقمية وحسابات العملاء وبوتات التيلجرام",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang="ar"
+      className={`${notoSansArabic.variable} ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

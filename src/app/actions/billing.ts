@@ -1,43 +1,66 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
+import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
-import { requireAuth, hashPassword } from '@/lib/session';
+import { requirePermission, revokeAllUserSessions } from '@/lib/session';
+import { hashPassword, verifyPassword } from '@/lib/security';
+import { money, requirePositiveMoney } from '@/lib/money';
+import { cleanText, oneOf } from '@/lib/validation';
+import { writeAuditLog } from '@/lib/audit';
 
-const PLAN_PRICES: Record<string, number> = {
-  basic: 150.0,
-  premium: 300.0,
-};
+const PAYMENT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
 
-/**
- * Changes password of the currently logged in merchant staff user
- */
-export async function changeMerchantPassword(newPasswordInput: string) {
+export async function changeMerchantPassword(
+  currentPasswordInput: string,
+  newPasswordInput: string,
+) {
   try {
-    const session = await requireAuth();
-    const hashedPassword = hashPassword(newPasswordInput);
+    const session = await requirePermission('settings', { allowInactiveTenant: true });
+    const currentPassword = cleanText(currentPasswordInput, 'كلمة المرور الحالية', 1, 200);
+    const newPassword = cleanText(newPasswordInput, 'كلمة المرور الجديدة', 10, 200);
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      throw new Error('كلمة المرور الجديدة يجب أن تحتوي على حروف وأرقام');
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { id: session.userId, tenantId: session.tenantId, isActive: true },
+      select: { password: true },
+    });
+    if (!user) throw new Error('المستخدم غير موجود');
+
+    const verified = await verifyPassword(currentPassword, user.password);
+    if (!verified.valid) throw new Error('كلمة المرور الحالية غير صحيحة');
 
     await prisma.user.update({
       where: { id: session.userId },
-      data: { password: hashedPassword }
+      data: { password: await hashPassword(newPassword) },
     });
-
+    await revokeAllUserSessions(session.userId, session.sessionId);
+    await writeAuditLog({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      action: 'user.password_changed',
+      entityType: 'User',
+      entityId: session.userId,
+    });
     return { success: true };
-  } catch (e: any) {
-    console.error('Failed to change password:', e);
-    return { success: false, error: e.message };
+  } catch (error) {
+    console.error('changeMerchantPassword failed', error);
+    return { success: false, error: error instanceof Error ? error.message : 'تعذر تغيير كلمة المرور' };
   }
 }
 
-/**
- * Submits a payment request to the Super Admin to recharge the store balance
- */
-export async function requestSaaSRecharge(amount: number, method: 'vodafone_cash' | 'instapay', senderIdentifier: string) {
+export async function requestSaaSRecharge(
+  amountInput: number,
+  methodInput: 'vodafone_cash' | 'instapay' | 'bank_transfer',
+  senderIdentifierInput: string,
+) {
   try {
-    const session = await requireAuth();
-
-    if (amount <= 0) {
-      throw new Error('يجب أن تكون القيمة موجبة');
-    }
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const amount = new Prisma.Decimal(requirePositiveMoney(amountInput, 'قيمة الشحن'));
+    const method = oneOf(methodInput, PAYMENT_METHODS, 'طريقة الدفع');
+    const senderIdentifier = cleanText(senderIdentifierInput, 'بيانات المرسل', 3, 100);
 
     const request = await prisma.saaSPaymentRequest.create({
       data: {
@@ -46,88 +69,231 @@ export async function requestSaaSRecharge(amount: number, method: 'vodafone_cash
         method,
         senderIdentifier,
         status: 'pending',
-        notes: 'بانتظار مراجعة وقبول المشرف العام'
-      }
+        notes: 'بانتظار مراجعة إدارة المنصة',
+      },
+      select: {
+        id: true,
+        amount: true,
+        method: true,
+        senderIdentifier: true,
+        status: true,
+        createdAt: true,
+      },
     });
-
-    return { success: true, request };
-  } catch (e: any) {
-    console.error('Failed to request SaaS recharge:', e);
-    return { success: false, error: e.message };
+    await writeAuditLog({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      action: 'billing.recharge_requested',
+      entityType: 'SaaSPaymentRequest',
+      entityId: request.id,
+      metadata: { amount: money(request.amount), method },
+    });
+    revalidatePath('/dashboard');
+    return { success: true, request: { ...request, amount: money(request.amount) } };
+  } catch (error) {
+    console.error('requestSaaSRecharge failed', error);
+    return { success: false, error: error instanceof Error ? error.message : 'تعذر إرسال طلب الشحن' };
   }
 }
 
-/**
- * Renews the merchant's store subscription for 30 days using their SaaS platform balance
- */
 export async function renewSaaSPlan() {
   try {
-    const session = await requireAuth();
-
-    const result = await prisma.$transaction(async (t) => {
-      // 1. Fetch current Tenant status
-      const tenant = await t.tenant.findUnique({
-        where: { id: session.tenantId }
-      });
-
-      if (!tenant) {
-        throw new Error('Tenant not found');
-      }
-
-      // Check current plan price
-      const plan = tenant.saasPlan === 'free_trial' ? 'basic' : tenant.saasPlan;
-      const price = PLAN_PRICES[plan] || 150.0;
-
-      if (tenant.saasBalance < price) {
-        throw new Error(`رصيدك غير كافٍ. سعر الباقة (${plan}) هو ${price} EGP. رصيدك الحالي هو ${tenant.saasBalance} EGP.`);
-      }
-
-      // Calculate new expiry date
-      let newExpiry = new Date();
-      if (tenant.saasExpiry && tenant.saasExpiry > new Date()) {
-        // If still active, extend from current expiry date
-        newExpiry = new Date(tenant.saasExpiry);
-      }
-      newExpiry.setDate(newExpiry.getDate() + 30); // Add 30 days
-
-      // Update tenant
-      const updatedTenant = await t.tenant.update({
-        where: { id: session.tenantId },
-        data: {
-          saasBalance: {
-            decrement: price
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const tenant = await tx.tenant.findUnique({
+          where: { id: session.tenantId },
+          select: {
+            id: true,
+            storeName: true,
+            currency: true,
+            saasBalance: true,
+            saasPlan: true,
+            saasExpiry: true,
           },
-          saasPlan: plan,
-          saasExpiry: newExpiry,
-          saasStatus: 'active'
+        });
+        if (!tenant) throw new Error('المتجر غير موجود');
+
+        const planCode = tenant.saasPlan === 'free_trial' ? 'basic' : tenant.saasPlan;
+        const plan = await tx.plan.findFirst({
+          where: { code: planCode, isActive: true },
+        });
+        if (!plan) throw new Error('الباقة غير متاحة حالياً');
+
+        const charged = await tx.tenant.updateMany({
+          where: { id: tenant.id, saasBalance: { gte: plan.priceMonthly } },
+          data: {
+            saasBalance: { decrement: plan.priceMonthly },
+            saasPlan: plan.code,
+            saasStatus: 'active',
+            maxUsers: plan.maxUsers,
+            maxCustomers: plan.maxCustomers,
+          },
+        });
+        if (charged.count !== 1) {
+          throw new Error(
+            `الرصيد غير كافٍ. سعر الباقة ${money(plan.priceMonthly).toFixed(2)} ${tenant.currency}`,
+          );
         }
-      });
 
-      return updatedTenant;
+        const now = new Date();
+        const periodStart = tenant.saasExpiry && tenant.saasExpiry > now ? tenant.saasExpiry : now;
+        const periodEnd = new Date(periodStart);
+        periodEnd.setUTCDate(periodEnd.getUTCDate() + 30);
+
+        await tx.tenant.update({
+          where: { id: tenant.id },
+          data: { saasExpiry: periodEnd },
+        });
+
+        const currentSubscription = await tx.platformSubscription.findFirst({
+          where: { tenantId: tenant.id, status: { in: ['trialing', 'active'] } },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (currentSubscription) {
+          await tx.platformSubscription.update({
+            where: { id: currentSubscription.id },
+            data: {
+              planId: plan.id,
+              status: 'active',
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+              cancelAtPeriodEnd: false,
+              canceledAt: null,
+            },
+          });
+        } else {
+          await tx.platformSubscription.create({
+            data: {
+              tenantId: tenant.id,
+              planId: plan.id,
+              status: 'active',
+              startsAt: now,
+              currentPeriodStart: periodStart,
+              currentPeriodEnd: periodEnd,
+            },
+          });
+        }
+
+        const invoice = await tx.platformInvoice.create({
+          data: {
+            tenantId: tenant.id,
+            number: `INV-${Date.now()}-${tenant.id.slice(-6).toUpperCase()}`,
+            amount: plan.priceMonthly,
+            currency: tenant.currency,
+            status: 'paid',
+            dueAt: now,
+            paidAt: now,
+            metadata: { plan: plan.code, source: 'saas_balance' },
+          },
+        });
+        const updatedTenant = await tx.tenant.findUniqueOrThrow({
+          where: { id: tenant.id },
+          select: {
+            saasBalance: true,
+            saasPlan: true,
+            saasStatus: true,
+            saasExpiry: true,
+            maxUsers: true,
+            maxCustomers: true,
+          },
+        });
+        return { tenant: updatedTenant, invoice, plan };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    await writeAuditLog({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      action: 'billing.subscription_renewed',
+      entityType: 'PlatformInvoice',
+      entityId: result.invoice.id,
+      metadata: {
+        plan: result.plan.code,
+        amount: money(result.invoice.amount),
+      },
     });
-
-    return { success: true, tenant: result };
-  } catch (e: any) {
-    console.error('Failed to renew SaaS plan:', e);
-    return { success: false, error: e.message };
+    revalidatePath('/dashboard');
+    return {
+      success: true,
+      tenant: { ...result.tenant, saasBalance: money(result.tenant.saasBalance) },
+      invoice: { ...result.invoice, amount: money(result.invoice.amount) },
+    };
+  } catch (error) {
+    console.error('renewSaaSPlan failed', error);
+    return { success: false, error: error instanceof Error ? error.message : 'تعذر تجديد الباقة' };
   }
 }
 
-/**
- * Gets all previous payment requests submitted by the active merchant
- */
 export async function getMySaaSPayments() {
   try {
-    const session = await requireAuth();
-
-    const requests = await prisma.saaSPaymentRequest.findMany({
-      where: { tenantId: session.tenantId },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    return { success: true, requests };
-  } catch (e: any) {
-    console.error('Failed to get my SaaS payments:', e);
-    return { success: false, error: e.message, requests: [] };
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const [requests, invoices, plans] = await Promise.all([
+      prisma.saaSPaymentRequest.findMany({
+        where: { tenantId: session.tenantId },
+        select: {
+          id: true,
+          amount: true,
+          method: true,
+          senderIdentifier: true,
+          transactionId: true,
+          status: true,
+          notes: true,
+          processedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      prisma.platformInvoice.findMany({
+        where: { tenantId: session.tenantId },
+        select: {
+          id: true,
+          number: true,
+          amount: true,
+          currency: true,
+          status: true,
+          dueAt: true,
+          paidAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      prisma.plan.findMany({
+        where: { isActive: true },
+        select: {
+          code: true,
+          name: true,
+          priceMonthly: true,
+          priceYearly: true,
+          maxUsers: true,
+          maxCustomers: true,
+          maxMessages: true,
+          features: true,
+        },
+        orderBy: { priceMonthly: 'asc' },
+      }),
+    ]);
+    return {
+      success: true,
+      requests: requests.map((item) => ({ ...item, amount: money(item.amount) })),
+      invoices: invoices.map((item) => ({ ...item, amount: money(item.amount) })),
+      plans: plans.map((plan) => ({
+        ...plan,
+        priceMonthly: money(plan.priceMonthly),
+        priceYearly: plan.priceYearly ? money(plan.priceYearly) : null,
+      })),
+    };
+  } catch (error) {
+    console.error('getMySaaSPayments failed', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'تعذر تحميل الفوترة',
+      requests: [],
+      invoices: [],
+      plans: [],
+    };
   }
 }

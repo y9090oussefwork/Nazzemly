@@ -6,9 +6,7 @@ let prisma: PrismaClient;
 let pool: pg.Pool;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __globalPrisma: PrismaClient | undefined;
-  // eslint-disable-next-line no-var
   var __globalPool: pg.Pool | undefined;
 }
 

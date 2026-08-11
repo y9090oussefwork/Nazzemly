@@ -1,217 +1,294 @@
-import { prisma } from './prisma';
+import 'server-only';
 
-/**
- * Charges the customer's wallet balance
- */
-export async function chargeWallet(
-  customerId: string,
-  amount: number,
-  description: string,
-  tx?: any
-) {
-  const client = tx || prisma;
-  
-  if (amount <= 0) {
-    throw new Error('Amount must be positive');
-  }
+import { Prisma } from "@/generated/prisma/client";
+import { prisma } from "@/lib/prisma";
+import { requirePositiveMoney } from "@/lib/money";
 
-  return await client.$transaction(async (t: any) => {
-    // 1. Update customer balance
-    const customer = await t.customer.update({
-      where: { id: customerId },
-      data: {
-        walletBalance: {
-          increment: amount,
-        },
-      },
-    });
+type DbTransaction = Prisma.TransactionClient;
 
-    // 2. Create wallet transaction record
-    await t.walletTransaction.create({
-      data: {
-        customerId,
-        amount,
-        type: 'deposit',
-        description,
-      },
-    });
-
-    return customer;
-  });
+function decimalAmount(value: unknown) {
+  return new Prisma.Decimal(requirePositiveMoney(value));
 }
 
-/**
- * Debits the customer's wallet balance (throws error if insufficient funds)
- */
-export async function debitWallet(
-  customerId: string,
-  amount: number,
-  description: string,
-  tx?: any
-) {
-  const client = tx || prisma;
-
-  if (amount <= 0) {
-    throw new Error('Amount must be positive');
-  }
-
-  return await client.$transaction(async (t: any) => {
-    // 1. Check customer's balance
-    const customer = await t.customer.findUnique({
-      where: { id: customerId },
-      select: { walletBalance: true },
-    });
-
-    if (!customer) {
-      throw new Error('Customer not found');
-    }
-
-    if (customer.walletBalance < amount) {
-      throw new Error('Insufficient balance');
-    }
-
-    // 2. Decrement balance
-    const updatedCustomer = await t.customer.update({
-      where: { id: customerId },
-      data: {
-        walletBalance: {
-          decrement: amount,
-        },
-      },
-    });
-
-    // 3. Create transaction record
-    await t.walletTransaction.create({
-      data: {
-        customerId,
-        amount: -amount,
-        type: 'purchase',
-        description,
-      },
-    });
-
-    return updatedCustomer;
-  });
+function decimalNumber(value: Prisma.Decimal | number | string) {
+  return Number(value);
 }
 
-/**
- * Generates a unique fractional amount for a payment request
- * to match incoming transactions. Matches within a 15-minute window.
- */
-export async function generateUniqueFraction(amount: number): Promise<number> {
-  const timeWindow = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes ago
+async function creditInTransaction(
+  tx: DbTransaction,
+  input: {
+    tenantId: string;
+    customerId: string;
+    amount: unknown;
+    description: string;
+    type?: string;
+    createdById?: string;
+    idempotencyKey?: string;
+    metadata?: Prisma.InputJsonValue;
+  },
+) {
+  const amount = decimalAmount(input.amount);
+  const customer = await tx.customer.findFirst({
+    where: { id: input.customerId, tenantId: input.tenantId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!customer) throw new Error("العميل غير موجود");
 
-  // Get all active pending requests for the same base amount in the last 15 minutes
-  const activeRequests = await prisma.paymentRequest.findMany({
-    where: {
-      amount,
-      status: 'pending',
-      createdAt: {
-        gte: timeWindow,
-      },
-    },
-    select: {
-      fraction: true,
-    },
+  const updated = await tx.customer.update({
+    where: { id: customer.id },
+    data: { walletBalance: { increment: amount } },
+    select: { id: true, walletBalance: true },
   });
 
-  const occupiedFractions = new Set(activeRequests.map((r) => Math.round(r.fraction * 100)));
-
-  // Try to find an unoccupied fraction from 0.01 to 0.99
-  let fractionInt = 1;
-  for (let i = 1; i <= 99; i++) {
-    const randomFraction = Math.floor(Math.random() * 99) + 1; // Randomize order a bit
-    if (!occupiedFractions.has(randomFraction)) {
-      fractionInt = randomFraction;
-      break;
-    }
-  }
-
-  return fractionInt / 100;
-}
-
-/**
- * Creates a new payment request with a unique fraction
- */
-export async function createPaymentRequest(
-  customerId: string,
-  amount: number,
-  method: 'vodafone_cash' | 'instapay',
-  senderIdentifier?: string
-) {
-  if (amount <= 0) {
-    throw new Error('Amount must be positive');
-  }
-
-  const fraction = await generateUniqueFraction(amount);
-
-  return await prisma.paymentRequest.create({
+  await tx.walletTransaction.create({
     data: {
-      customerId,
+      tenantId: input.tenantId,
+      customerId: customer.id,
+      createdById: input.createdById,
       amount,
-      fraction,
-      method,
-      senderIdentifier,
-      status: 'pending',
+      balanceAfter: updated.walletBalance,
+      type: input.type ?? "deposit",
+      description: input.description,
+      idempotencyKey: input.idempotencyKey,
+      metadata: input.metadata,
     },
   });
+  return updated;
 }
 
-/**
- * Approves a payment request manually or automatically
- */
-export async function approvePaymentRequest(
-  paymentRequestId: string,
-  transactionId?: string,
-  notes?: string
+async function debitInTransaction(
+  tx: DbTransaction,
+  input: {
+    tenantId: string;
+    customerId: string;
+    amount: unknown;
+    description: string;
+    type?: string;
+    createdById?: string;
+    idempotencyKey?: string;
+    metadata?: Prisma.InputJsonValue;
+  },
 ) {
-  return await prisma.$transaction(async (t) => {
-    // 1. Get payment request
-    const request = await t.paymentRequest.findUnique({
-      where: { id: paymentRequestId },
-      include: { customer: true },
+  const amount = decimalAmount(input.amount);
+  const changed = await tx.customer.updateMany({
+    where: {
+      id: input.customerId,
+      tenantId: input.tenantId,
+      deletedAt: null,
+      walletBalance: { gte: amount },
+    },
+    data: { walletBalance: { decrement: amount } },
+  });
+
+  if (changed.count !== 1) {
+    const customer = await tx.customer.findFirst({
+      where: { id: input.customerId, tenantId: input.tenantId, deletedAt: null },
+      select: { id: true },
     });
+    if (!customer) throw new Error("العميل غير موجود");
+    throw new Error("الرصيد غير كافٍ");
+  }
 
-    if (!request) {
-      throw new Error('Payment request not found');
-    }
+  const customer = await tx.customer.findUniqueOrThrow({
+    where: { id: input.customerId },
+    select: { id: true, walletBalance: true },
+  });
 
-    if (request.status !== 'pending') {
-      throw new Error(`Payment request is already ${request.status}`);
-    }
+  await tx.walletTransaction.create({
+    data: {
+      tenantId: input.tenantId,
+      customerId: customer.id,
+      createdById: input.createdById,
+      amount: amount.negated(),
+      balanceAfter: customer.walletBalance,
+      type: input.type ?? "purchase",
+      description: input.description,
+      idempotencyKey: input.idempotencyKey,
+      metadata: input.metadata,
+    },
+  });
+  return customer;
+}
 
-    const totalCredit = request.amount + request.fraction;
-
-    // 2. Update payment request status
-    const updatedRequest = await t.paymentRequest.update({
-      where: { id: paymentRequestId },
-      data: {
-        status: 'approved',
-        transactionId: transactionId || request.transactionId,
-        notes: notes || 'تم القبول والشحن بنجاح',
-      },
-    });
-
-    // 3. Increment customer wallet balance
-    await t.customer.update({
-      where: { id: request.customerId },
-      data: {
-        walletBalance: {
-          increment: totalCredit,
-        },
-      },
-    });
-
-    // 4. Create wallet transaction ledger entry
-    await t.walletTransaction.create({
-      data: {
-        customerId: request.customerId,
-        amount: totalCredit,
-        type: 'deposit',
-        description: `شحن رصيد تلقائي (${request.method === 'instapay' ? 'إنستا باي' : 'فودافون كاش'}) بقيمة ${totalCredit} EGP`,
-      },
-    });
-
-    return updatedRequest;
+export async function creditWallet(input: {
+  tenantId: string;
+  customerId: string;
+  amount: unknown;
+  description: string;
+  type?: string;
+  createdById?: string;
+  idempotencyKey?: string;
+  metadata?: Prisma.InputJsonValue;
+}) {
+  return prisma.$transaction((tx) => creditInTransaction(tx, input), {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
   });
 }
+
+export async function debitWallet(input: {
+  tenantId: string;
+  customerId: string;
+  amount: unknown;
+  description: string;
+  type?: string;
+  createdById?: string;
+  idempotencyKey?: string;
+  metadata?: Prisma.InputJsonValue;
+}) {
+  return prisma.$transaction((tx) => debitInTransaction(tx, input), {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  });
+}
+
+export async function createPaymentRequest(input: {
+  tenantId: string;
+  customerId: string;
+  amount: unknown;
+  method: string;
+  paymentMethodId?: string;
+  senderIdentifier?: string;
+}) {
+  const amount = decimalAmount(input.amount);
+  const customer = await prisma.customer.findFirst({
+    where: { id: input.customerId, tenantId: input.tenantId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!customer) throw new Error("العميل غير موجود");
+
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+  const used = await prisma.paymentRequest.findMany({
+    where: {
+      tenantId: input.tenantId,
+      amount,
+      status: "pending",
+      expiresAt: { gt: new Date() },
+    },
+    select: { fraction: true },
+  });
+  const occupied = new Set(used.map((item) => Math.round(decimalNumber(item.fraction) * 100)));
+
+  const start = Math.floor(Math.random() * 99) + 1;
+  for (let offset = 0; offset < 99; offset += 1) {
+    const candidate = ((start + offset - 1) % 99) + 1;
+    if (occupied.has(candidate)) continue;
+    try {
+      return await prisma.paymentRequest.create({
+        data: {
+          tenantId: input.tenantId,
+          customerId: customer.id,
+          amount,
+          fraction: new Prisma.Decimal(candidate).dividedBy(100),
+          method: input.method,
+          paymentMethodId: input.paymentMethodId,
+          senderIdentifier: input.senderIdentifier,
+          expiresAt,
+          status: "pending",
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") continue;
+      throw error;
+    }
+  }
+  throw new Error("لا يوجد رقم دفع متاح الآن، حاول بعد دقائق");
+}
+
+export async function approvePaymentRequest(input: {
+  tenantId: string;
+  paymentRequestId: string;
+  approvedById?: string;
+  transactionId?: string;
+  notes?: string;
+}) {
+  return prisma.$transaction(
+    async (tx) => {
+      const request = await tx.paymentRequest.findFirst({
+        where: { id: input.paymentRequestId, tenantId: input.tenantId },
+        select: {
+          id: true,
+          customerId: true,
+          amount: true,
+          fraction: true,
+          method: true,
+          status: true,
+          transactionId: true,
+        },
+      });
+      if (!request) throw new Error("طلب الدفع غير موجود");
+
+      const credit = request.amount.plus(request.fraction);
+      const idempotencyKey = `payment:${request.id}`;
+      const existingCredit = await tx.walletTransaction.findUnique({
+        where: { idempotencyKey },
+        select: { customerId: true, tenantId: true, amount: true, type: true },
+      });
+
+      // قد تكون محاولة قديمة سجلت حركة المحفظة ثم تعطلت قبل تغيير حالة الطلب.
+      // نتحقق من التطابق أولاً ثم نعتمد الطلب بدون إضافة رصيد للمرة الثانية.
+      if (existingCredit) {
+        if (
+          existingCredit.tenantId !== input.tenantId ||
+          existingCredit.customerId !== request.customerId ||
+          existingCredit.type !== 'payment' ||
+          !existingCredit.amount.equals(credit)
+        ) {
+          throw new Error("يوجد تعارض في السجل المالي لهذا الطلب. راجع الدعم قبل الاعتماد.");
+        }
+        if (request.status !== 'pending' && request.status !== 'approved') {
+          throw new Error("حالة طلب الدفع لا تسمح باعتماده.");
+        }
+        const updatedRequest = request.status === 'pending'
+          ? await tx.paymentRequest.update({
+              where: { id: request.id },
+              data: {
+                status: 'approved',
+                approvedById: input.approvedById,
+                transactionId: input.transactionId ?? request.transactionId,
+                notes: input.notes ?? 'تمت استعادة اعتماد الدفعة من السجل المالي الموجود',
+                processedAt: new Date(),
+              },
+            })
+          : await tx.paymentRequest.findUniqueOrThrow({ where: { id: request.id } });
+        const customer = await tx.customer.findUniqueOrThrow({
+          where: { id: request.customerId },
+          select: { walletBalance: true },
+        });
+        return { request: updatedRequest, walletBalance: customer.walletBalance, creditedAmount: credit, recovered: true };
+      }
+
+      if (request.status !== "pending") throw new Error("تمت معالجة الطلب مسبقاً");
+
+      const claimed = await tx.paymentRequest.updateMany({
+        where: { id: request.id, tenantId: input.tenantId, status: "pending" },
+        data: {
+          status: "approved",
+          approvedById: input.approvedById,
+          transactionId: input.transactionId ?? request.transactionId,
+          notes: input.notes ?? "تم التحقق من الدفعة وشحن المحفظة",
+          processedAt: new Date(),
+        },
+      });
+      if (claimed.count !== 1) throw new Error("تمت معالجة الطلب مسبقاً");
+
+      const customer = await creditInTransaction(tx, {
+        tenantId: input.tenantId,
+        customerId: request.customerId,
+        amount: credit,
+        description: `شحن محفظة عبر ${request.method}`,
+        type: "payment",
+        createdById: input.approvedById,
+        idempotencyKey,
+        metadata: {
+          paymentRequestId: request.id,
+          transactionId: input.transactionId ?? request.transactionId ?? undefined,
+        },
+      });
+
+      const updatedRequest = await tx.paymentRequest.findUniqueOrThrow({ where: { id: request.id } });
+      return { request: updatedRequest, walletBalance: customer.walletBalance, creditedAmount: credit };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+}
+
+export const walletTransactionHelpers = { creditInTransaction, debitInTransaction };

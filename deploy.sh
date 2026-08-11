@@ -1,34 +1,18 @@
-#!/bin/bash
-# Automatic Deployment Script for Next.js SaaS Platform on VPS
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "🚀 Starting Deployment Process..."
-
-# 1. Pull latest changes from GitHub
-echo "📥 Pulling latest code from GitHub..."
-git pull origin master
-
-# 2. Install dependencies
-echo "📦 Installing npm dependencies..."
-npm install
-
-# 3. Apply Prisma database schema updates
-echo "🗄️ Pushing database schema..."
-npx prisma db push
-
-# 4. Generate Prisma Client
-echo "🏗️ Generating Prisma Client..."
+echo "Starting safe production deployment..."
+git pull --ff-only
+npm ci
 npx prisma generate
-
-# 5. Seed database with initial accounts (superadmin / demo)
-echo "🌱 Seeding database..."
-npx -y tsx prisma/seed.ts
-
-# 6. Build production bundle of Next.js
-echo "🏗️ Building production Next.js application..."
+npx prisma migrate deploy
 npm run build
 
-# 6. Restart/Start the application in background using PM2
-echo "🔄 Starting application with PM2..."
-pm2 restart saas-subscription-manager || pm2 start npm --name "saas-subscription-manager" -- run start -- -p 3010
+if command -v pm2 >/dev/null 2>&1; then
+  pm2 restart saas-subscription-manager --update-env || \
+    pm2 start npm --name saas-subscription-manager -- run start -- -p 3010
+else
+  echo "PM2 is not installed. Build completed; start the app with: npm run start"
+fi
 
-echo "🎉 Deployment completed successfully and application is live!"
+echo "Deployment completed. No demo data or passwords were created."

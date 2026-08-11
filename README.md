@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# منصة إدارة العملاء والاشتراكات
 
-## Getting Started
+منصة SaaS عربية متعددة المتاجر لإدارة العملاء والاشتراكات والفريق والمدفوعات وبوت تيليجرام من واجهة واحدة.
 
-First, run the development server:
+## ما توفره المنصة
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- عزل كامل للبيانات بين المتاجر، مع صلاحيات فريق دقيقة وجلسات آمنة قابلة للإبطال.
+- CRM للعملاء ومراحل البيع والصفقات والمهام وسجل نشاط العميل.
+- خدمات واشتراكات ومخزون حسابات مشفر وتسليم تلقائي عبر بوت تيليجرام.
+- لوحة مالك المنصة: المتاجر، الباقات والحدود، MRR وARR، المدفوعات، سجل التدقيق، وحالة البوتات.
+- بوت مستقل لكل متجر: ربط العميل برقم هاتفه، رصيد، شراء، شحن، ردود آلية، وحملات مجدولة.
+- استقبال رسائل الدفع بتوقيع HMAC ومنع التكرار؛ المطابقة تجهز طلب الدفع للمراجعة اليدوية قبل إضافة الرصيد.
+- سجلات تدقيق للعمليات الحساسة وتشفير AES-256-GCM لرموز البوت وبيانات الحسابات وأسرار التكامل.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## التشغيل المحلي
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. انسخ ملف .env.example إلى .env واضبط القيم المطلوبة.
+2. نفّذ الترقية:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+    npx prisma migrate deploy
+    npx prisma generate
 
-## Learn More
+3. أنشئ حساب مالك المنصة مرة واحدة، بعد وضع متغيري SEED_SUPERADMIN_USERNAME وSEED_SUPERADMIN_PASSWORD:
 
-To learn more about Next.js, take a look at the following resources:
+    npx -y tsx prisma/seed.ts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   لا ينشئ هذا الأمر أي حساب افتراضي ولا يستبدل كلمة مرور موجودة.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. شغّل التطبيق:
 
-## Deploy on Vercel
+    npm run dev
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## متغيرات البيئة الأساسية
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- DATABASE_URL: رابط PostgreSQL.
+- APP_BASE_URL: رابط التطبيق العام عبر HTTPS؛ مطلوب لتشغيل ويب هوك تيليجرام.
+- APP_ENCRYPTION_KEY: قيمة عشوائية لا تقل عن 32 حرفاً لتشفير الأسرار.
+- CRON_SECRET: سر تشغيل حملات البوت المجدولة.
+
+## تفعيل بوت متجر بلا كود
+
+1. أنشئ بوتاً من BotFather وانسخ الرمز.
+2. سجّل كمدير متجر، ثم افتح إعدادات بوت التليجرام وأدخل الرمز وفعّل البوت.
+3. افتح مركز CRM والفريق والأتمتة لإعداد الردود الآلية، وسائل الدفع، الحملات، وفريق العمل.
+4. عيّن مهمة مجدولة ترسل طلب POST إلى /api/cron/broadcasts مع الترويسة Authorization: Bearer ثم قيمة CRON_SECRET.
+
+## النشر
+
+استخدم deploy.sh. السكربت يستعمل prisma migrate deploy ولا يشغّل أي بيانات تجريبية أو يحذف بيانات.
+
+> قبل ترقية قاعدة إنتاج قديمة، خذ نسخة احتياطية. Migration V2 تحوّل المبالغ إلى Decimal وتملأ مفاتيح المتجر في السجلات التاريخية قبل فرض القيود.
+
+## تذكيرات التجديد المجانية
+
+- زر واتساب يظهر داخل الاشتراكات في أيام التذكير: قبل 7 و3 وأيام، ويوم الانتهاء. يفتح محادثة العميل برقم هاتفه مع رسالة عربية شخصية قابلة للتعديل، ولا يستخدم أي API أو خدمة واتساب مدفوعة.
+- لتشغيل تذكير تيليجرام التلقائي، عيّن مهمة مجدولة يومية ترسل طلب POST إلى `/api/cron/subscription-reminders` مع الترويسة `Authorization: Bearer <CRON_SECRET>`. يرسل النظام التذكير مرة واحدة فقط لكل اشتراك في اليوم، ويحتاج أن يكون البوت مفعّلاً وأن يكون العميل قد ربط تيليجرام به.

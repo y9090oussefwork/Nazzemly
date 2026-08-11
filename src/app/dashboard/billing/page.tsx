@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect, react-hooks/immutability */
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
@@ -11,20 +12,16 @@ import {
 } from '@/app/actions/billing';
 import { getSettings } from '@/app/actions/merchant';
 import {
-  ShieldAlert,
   Wallet,
   Clock,
   KeyRound,
   Coins,
-  ArrowRight,
   Loader2,
-  CheckCircle,
 } from 'lucide-react';
 
 export default function BillingPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [mounted, setMounted] = useState(false);
 
@@ -33,7 +30,7 @@ export default function BillingPage() {
   const [myPayments, setMyPayments] = useState<any[]>([]);
 
   // Forms
-  const [passwordForm, setPasswordForm] = useState({ password: '', confirm: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', password: '', confirm: '' });
   const [rechargeForm, setRechargeForm] = useState({ amount: 150, method: 'vodafone_cash' as 'vodafone_cash' | 'instapay', senderIdentifier: '' });
 
   useEffect(() => {
@@ -52,10 +49,9 @@ export default function BillingPage() {
       }
     }
     loadUser();
-  }, [mounted]);
+  }, [mounted, router]);
 
   const refreshBillingData = async () => {
-    setLoading(true);
     try {
       const settingsRes = await getSettings();
       if (settingsRes.success && settingsRes.tenant) {
@@ -69,7 +65,6 @@ export default function BillingPage() {
     } catch (e) {
       console.error('Error fetching billing data:', e);
     } finally {
-      setLoading(false);
     }
   };
 
@@ -81,10 +76,10 @@ export default function BillingPage() {
     }
 
     startTransition(async () => {
-      const res = await changeMerchantPassword(passwordForm.password);
+      const res = await changeMerchantPassword(passwordForm.currentPassword, passwordForm.password);
       if (res.success) {
         alert('تم تغيير كلمة المرور بنجاح!');
-        setPasswordForm({ password: '', confirm: '' });
+        setPasswordForm({ currentPassword: '', password: '', confirm: '' });
       } else {
         alert(res.error || 'فشل تغيير كلمة المرور');
       }
@@ -134,36 +129,27 @@ export default function BillingPage() {
 
     if (diff < 0) return <span className="text-red-500 font-bold">منتهي منذ {Math.abs(diff)} يوم</span>;
     if (diff === 0) return <span className="text-amber-500 font-bold">ينتهي اليوم</span>;
-    return <span className="text-green-500 font-bold">{end.toLocaleDateString('en-GB')} ({diff} يوم متبقي)</span>;
+    return <span className="text-emerald-500 font-bold">{end.toLocaleDateString('en-GB')} ({diff} يوم متبقي)</span>;
   };
 
   if (!mounted) return null;
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-8" dir="rtl">
+    <section className="mx-auto max-w-6xl" dir="rtl">
       
-      {/* Back Button */}
-      <div className="max-w-6xl mx-auto mb-6 flex justify-between items-center">
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white rounded-xl text-xs font-bold cursor-pointer transition-all duration-150"
-        >
-          <ArrowRight className="w-4 h-4" />
-          <span>العودة للوحة تحكم المتجر</span>
-        </button>
-
-        <h1 className="text-lg font-black text-white">إعدادات الاشتراك المالي والملف الشخصي للمتجر</h1>
+      <div className="mb-6">
+        <p className="text-sm font-bold text-emerald-400">إدارة المتجر</p>
+        <h2 className="mt-1 text-xl font-black text-white">الحساب والفوترة</h2>
       </div>
-
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         
         {/* Left Column: Account Plan Summary & Renew */}
         <div className="space-y-8 lg:col-span-1">
@@ -172,7 +158,7 @@ export default function BillingPage() {
           {tenant && (
             <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-6 shadow-xl space-y-5 text-right">
               <h3 className="text-sm font-black text-white flex items-center gap-2 border-b border-zinc-800/50 pb-3">
-                <Wallet className="w-5 h-5 text-indigo-400" />
+                <Wallet className="w-5 h-5 text-emerald-400" />
                 <span>اشتراك المتجر الحالي</span>
               </h3>
 
@@ -193,7 +179,7 @@ export default function BillingPage() {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-zinc-500 font-bold">حالة الخدمة:</span>
-                  <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded-lg ${tenant.saasStatus === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
+                  <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded-lg ${tenant.saasStatus === 'active' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
                     {tenant.saasStatus === 'active' ? 'نشط (مفتوح)' : 'معلق أو منتهي'}
                   </span>
                 </div>
@@ -208,13 +194,13 @@ export default function BillingPage() {
                 <button
                   onClick={handleRenewClick}
                   disabled={isPending}
-                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-xs rounded-2xl shadow-lg shadow-indigo-500/10 cursor-pointer transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-xs rounded-2xl shadow-lg shadow-emerald-500/10 cursor-pointer transition-colors flex items-center justify-center gap-2"
                 >
                   {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>تجديد الاشتراك لـ 30 يوماً إضافية</span>
                 </button>
               ) : (
-                <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[10px] text-indigo-400 font-bold text-center leading-relaxed">
+                <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl text-[10px] text-emerald-400 font-bold text-center leading-relaxed">
                   ⚠️ رصيدك الحالي أقل من سعر تجديد الباقة. يرجى شحن محفظتك أدناه لتجديد اشتراك المتجر بنجاح.
                 </div>
               )}
@@ -224,11 +210,23 @@ export default function BillingPage() {
           {/* Change Password Form */}
           <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-6 shadow-xl text-right">
             <h3 className="text-sm font-black text-white flex items-center gap-2 border-b border-zinc-800/50 pb-3 mb-4">
-              <KeyRound className="w-5 h-5 text-indigo-400" />
+              <KeyRound className="w-5 h-5 text-emerald-400" />
               <span>تغيير كلمة مرور الحساب</span>
             </h3>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-400 mb-2">كلمة المرور الحالية</label>
+                <input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                  placeholder="أدخل كلمة المرور الحالية"
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left"
+                  dir="ltr"
+                  required
+                />
+              </div>
               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 mb-2">كلمة المرور الجديدة</label>
                 <input
@@ -236,7 +234,7 @@ export default function BillingPage() {
                   value={passwordForm.password}
                   onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })}
                   placeholder="أدخل الباسوورد الجديد"
-                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500 text-left"
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left"
                   dir="ltr"
                   required
                 />
@@ -249,7 +247,7 @@ export default function BillingPage() {
                   value={passwordForm.confirm}
                   onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
                   placeholder="أعد إدخال الباسوورد للتأكيد"
-                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500 text-left"
+                  className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left"
                   dir="ltr"
                   required
                 />
@@ -258,7 +256,7 @@ export default function BillingPage() {
               <button
                 type="submit"
                 disabled={isPending}
-                className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-bold text-xs rounded-2xl cursor-pointer transition-all"
+                className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-bold text-xs rounded-2xl cursor-pointer transition-colors"
               >
                 {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>حفظ الباسوورد الجديد</span>
@@ -274,11 +272,11 @@ export default function BillingPage() {
           {/* Recharge Store Form */}
           <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-8 shadow-xl text-right space-y-6">
             <h3 className="text-sm font-black text-white flex items-center gap-2 border-b border-zinc-800/50 pb-3">
-              <Coins className="w-5 h-5 text-indigo-400" />
+              <Coins className="w-5 h-5 text-emerald-400" />
               <span>تقديم طلب شحن رصيد المتجر في المنصة</span>
             </h3>
             
-            <div className="p-4 bg-indigo-950/20 border border-indigo-900/40 rounded-2xl text-xs text-zinc-300 leading-relaxed">
+            <div className="p-4 bg-emerald-950/20 border border-emerald-900/40 rounded-2xl text-xs text-zinc-300 leading-relaxed">
               💡 **خطوات شحن المحفظة وتفعيل المتاجر:**
               <ul className="list-disc list-inside mt-2 space-y-1 text-zinc-400">
                 <li>قم بتحويل مبلغ الاشتراك إلى محفظة فودافون كاش للمنصة: <code className="text-white bg-zinc-950 px-1 py-0.5 rounded font-mono">01026040854</code>.</li>
@@ -327,7 +325,7 @@ export default function BillingPage() {
                 <button
                   type="submit"
                   disabled={isPending}
-                  className="w-full py-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-xs rounded-2xl shadow-lg shadow-indigo-500/10 cursor-pointer transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-xs rounded-2xl shadow-lg shadow-emerald-500/10 cursor-pointer transition-colors flex items-center justify-center gap-2"
                 >
                   {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                   <span>تقديم طلب شحن المحفظة للإدارة</span>
@@ -339,7 +337,7 @@ export default function BillingPage() {
           {/* Recharge Requests history */}
           <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-6 shadow-xl text-right">
             <h3 className="text-sm font-black text-white flex items-center gap-2 border-b border-zinc-800/50 pb-3 mb-4">
-              <Clock className="w-5 h-5 text-indigo-400" />
+              <Clock className="w-5 h-5 text-emerald-400" />
               <span>تاريخ طلبات الشحن السابقة</span>
             </h3>
 
@@ -364,11 +362,11 @@ export default function BillingPage() {
                     {myPayments.map((p) => (
                       <tr key={p.id} className="border-b border-zinc-800/40 hover:bg-zinc-800/20 text-xs text-zinc-300">
                         <td className="p-3 text-[10px] text-zinc-500">{new Date(p.createdAt).toLocaleDateString('en-GB')}</td>
-                        <td className="p-3 text-indigo-400 font-bold">{p.amount.toFixed(2)} EGP</td>
+                        <td className="p-3 text-emerald-400 font-bold">{p.amount.toFixed(2)} EGP</td>
                         <td className="p-3">{p.method === 'instapay' ? 'إنستا باي' : 'فودافون كاش'}</td>
                         <td className="p-3 font-semibold">{p.senderIdentifier}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 text-[8px] font-extrabold rounded-lg ${p.status === 'approved' ? 'bg-green-500/15 text-green-400' : p.status === 'rejected' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                          <span className={`px-2 py-0.5 text-[8px] font-extrabold rounded-lg ${p.status === 'approved' ? 'bg-emerald-500/15 text-emerald-400' : p.status === 'rejected' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
                             {p.status === 'approved' && 'تم الشحن'}
                             {p.status === 'rejected' && 'مرفوض'}
                             {p.status === 'pending' && 'معلق'}
@@ -387,6 +385,6 @@ export default function BillingPage() {
 
       </div>
 
-    </div>
+    </section>
   );
 }

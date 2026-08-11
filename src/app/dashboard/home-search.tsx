@@ -1,0 +1,13 @@
+'use client';
+
+import Link from 'next/link';
+import { FormEvent, useState, useTransition } from 'react';
+import { Search } from 'lucide-react';
+import { getGlobalSearchResults } from '@/app/actions/operations-center';
+
+export default function HomeSearch() {
+  const [query, setQuery] = useState(''); const [result, setResult] = useState<any>(null); const [pending, startTransition] = useTransition();
+  const submit = (event: FormEvent) => { event.preventDefault(); if (query.trim().length < 2) return setResult({ error: 'اكتب حرفين على الأقل للبحث.' }); startTransition(async () => { try { setResult(await getGlobalSearchResults(query)); } catch { setResult({ error: 'تعذر إتمام البحث الآن.' }); } }); };
+  const rows = result?.success ? [...result.customers.map((item: any) => ({ title: item.name, subtitle: item.phone || item.email || 'عميل', href: '/dashboard/customers' })), ...result.orders.map((item: any) => ({ title: item.orderNo, subtitle: `${item.customer.name} · طلب`, href: '/dashboard/orders' })), ...result.subscriptions.map((item: any) => ({ title: item.orderNo || item.service.name, subtitle: `${item.customer.name} · اشتراك`, href: '/dashboard/manage?tab=subscriptions' })), ...result.services.map((item: any) => ({ title: item.name, subtitle: 'خدمة', href: '/dashboard/services' }))] : [];
+  return <section className="relative mt-5" dir="rtl"><form onSubmit={submit} className="flex items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/55 p-2 shadow-sm"><Search className="mr-2 h-5 w-5 shrink-0 text-zinc-500" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm text-white outline-none placeholder:text-zinc-600" placeholder="ابحث عن عميل، رقم هاتف، طلب، اشتراك أو خدمة…"/><button disabled={pending} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-zinc-950 active:scale-[0.98]">{pending ? 'جارٍ البحث…' : 'بحث'}</button></form>{result ? <div className="absolute inset-x-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl">{result.error ? <p className="px-4 py-3 text-sm text-amber-300">{result.error}</p> : rows.length ? rows.slice(0, 10).map((row: any, index: number) => <Link key={`${row.title}-${index}`} href={row.href} onClick={() => setResult(null)} className="block border-b border-white/5 px-4 py-3 last:border-0 hover:bg-zinc-900"><p className="text-sm font-bold text-white">{row.title}</p><p className="mt-1 text-xs text-zinc-500">{row.subtitle}</p></Link>) : <p className="px-4 py-5 text-center text-sm text-zinc-500">لا توجد نتائج مطابقة.</p>}</div> : null}</section>;
+}

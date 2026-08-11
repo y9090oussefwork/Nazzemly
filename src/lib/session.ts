@@ -1,89 +1,180 @@
-import { cookies } from 'next/headers';
-import crypto from 'node:crypto';
+import 'server-only';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'a-very-long-secret-key-that-is-at-least-32-chars';
-// Derive a 32-byte key from secret
-const KEY = crypto.scryptSync(SESSION_SECRET, 'salt', 32);
-const ALGORITHM = 'aes-256-gcm';
+import { cookies, headers } from 'next/headers';
+import { prisma } from './prisma';
+import { hashPassword, hashToken, randomToken } from './security';
 
-export function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+const SESSION_COOKIE = 'saas_session';
+const SESSION_DAYS = 7;
+
+export { hashPassword };
+
+export interface SessionContext {
+  sessionId: string;
+  userId: string;
+  username: string;
+  role: string;
+  tenantId: string;
+  storeName: string;
+  permissions: string[];
+  tenantStatus: string;
+  tenantExpiry: Date | null;
 }
 
-export async function encrypt(payload: any): Promise<string> {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, KEY, iv);
-  
-  let encrypted = cipher.update(JSON.stringify(payload), 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag().toString('hex');
-  
-  // Format: iv:encrypted:authTag
-  return `${iv.toString('hex')}:${encrypted}:${authTag}`;
+interface LoginPayload {
+  userId: string;
+  username: string;
+  role: string;
+  tenantId: string;
+  storeName: string;
+  permissions: string[];
 }
 
-export async function decrypt(token: string): Promise<any> {
-  try {
-    const [ivHex, encryptedHex, authTagHex] = token.split(':');
-    if (!ivHex || !encryptedHex || !authTagHex) return null;
-    
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, KEY, iv);
-    decipher.setAuthTag(authTag);
-    
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    
-    return JSON.parse(decrypted);
-  } catch (e) {
-    console.error('Session decryption failed:', e);
-    return null;
-  }
-}
+export async function login(payload: LoginPayload): Promise<void> {
+  const token = randomToken();
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const requestHeaders = await headers();
+  const forwarded = requestHeaders.get('x-forwarded-for');
 
-export async function getSession(): Promise<any | null> {
-  if (process.env.TEST_MODE === 'true' && (global as any).testSession) {
-    return (global as any).testSession;
-  }
+  await prisma.session.create({
+    data: {
+      tenantId: payload.tenantId,
+      userId: payload.userId,
+      tokenHash: hashToken(token),
+      expiresAt,
+      ipAddress: forwarded?.split(',')[0]?.trim() || requestHeaders.get('x-real-ip'),
+      userAgent: requestHeaders.get('user-agent'),
+    },
+  });
+
   const cookieStore = await cookies();
-  const sessionToken = cookieStore.get('session')?.value;
-  if (!sessionToken) return null;
-  return decrypt(sessionToken);
-}
-
-export async function login(payload: { userId: string; username: string; role: string; tenantId: string; storeName: string; permissions: string[] }) {
-  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-  const session = await encrypt({ ...payload, expires });
-  
-  const cookieStore = await cookies();
-  cookieStore.set('session', session, {
+  cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    expires,
+    expires: expiresAt,
     path: '/',
+    priority: 'high',
   });
 }
 
-export async function logout() {
+export async function logout(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set('session', '', { expires: new Date(0), path: '/' });
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  if (token) {
+    await prisma.session.updateMany({
+      where: { tokenHash: hashToken(token), revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+  cookieStore.delete(SESSION_COOKIE);
+  cookieStore.delete('session');
 }
 
-export async function requireAuth() {
+export async function getSession(): Promise<SessionContext | null> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  const session = await prisma.session.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          permissions: true,
+          isActive: true,
+          tenantId: true,
+        },
+      },
+      tenant: {
+        select: {
+          id: true,
+          storeName: true,
+          saasStatus: true,
+          saasExpiry: true,
+        },
+      },
+    },
+  });
+
+  const now = new Date();
+  if (
+    !session ||
+    session.revokedAt ||
+    session.expiresAt <= now ||
+    !session.user.isActive ||
+    session.user.tenantId !== session.tenantId
+  ) {
+    return null;
+  }
+
+  if (now.getTime() - session.lastSeenAt.getTime() > 15 * 60 * 1000) {
+    await prisma.session.update({
+      where: { id: session.id },
+      data: { lastSeenAt: now },
+    });
+  }
+
+  return {
+    sessionId: session.id,
+    userId: session.user.id,
+    username: session.user.username,
+    role: session.user.role,
+    tenantId: session.tenant.id,
+    storeName: session.tenant.storeName,
+    permissions: session.user.permissions,
+    tenantStatus: session.tenant.saasStatus,
+    tenantExpiry: session.tenant.saasExpiry,
+  };
+}
+
+export async function requireAuth(): Promise<SessionContext> {
   const session = await getSession();
-  if (!session) {
-    throw new Error('Unauthorized');
+  if (!session) throw new Error('Unauthorized');
+  return session;
+}
+
+export async function requireSuperAdmin(): Promise<SessionContext> {
+  const session = await requireAuth();
+  if (session.role !== 'super_admin') {
+    throw new Error('Forbidden: Super Admin access required');
   }
   return session;
 }
 
-export async function requireSuperAdmin() {
-  const session = await getSession();
-  if (!session || session.role !== 'super_admin') {
-    throw new Error('Unauthorized: Super Admin access required');
+export async function requirePermission(
+  permission: string,
+  options: { allowInactiveTenant?: boolean } = {},
+): Promise<SessionContext> {
+  const session = await requireAuth();
+
+  if (session.role === 'super_admin') return session;
+
+  if (!options.allowInactiveTenant) {
+    const expired = session.tenantExpiry ? session.tenantExpiry <= new Date() : false;
+    if (session.tenantStatus !== 'active' || expired) {
+      throw new Error('TENANT_SUBSCRIPTION_INACTIVE');
+    }
   }
+
+  const hasPermission =
+    session.role === 'admin' ||
+    session.permissions.includes('all') ||
+    session.permissions.includes(permission);
+
+  if (!hasPermission) throw new Error('Forbidden: missing permission ' + permission);
   return session;
+}
+
+export async function revokeAllUserSessions(userId: string, exceptSessionId?: string): Promise<void> {
+  await prisma.session.updateMany({
+    where: {
+      userId,
+      revokedAt: null,
+      ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}),
+    },
+    data: { revokedAt: new Date() },
+  });
 }

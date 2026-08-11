@@ -1,43 +1,44 @@
-import { requireAuth } from './session';
+import 'server-only';
+
 import { prisma } from './prisma';
+import { requirePermission, type SessionContext } from './session';
 
 export interface TenantContext {
   tenantId: string;
   storeName: string;
   currency: string;
+  session: SessionContext;
 }
 
-/**
- * Resolves the tenant context for the currently logged-in merchant staff user.
- * Scopes database queries to the active tenant.
- */
-export async function getActiveTenant(): Promise<TenantContext> {
-  const session = await requireAuth();
-  
-  // Optionally fetch fresh settings from DB
+export async function getActiveTenant(permission = 'dashboard'): Promise<TenantContext> {
+  const session = await requirePermission(permission);
   const tenant = await prisma.tenant.findUnique({
     where: { id: session.tenantId },
-    select: { id: true, storeName: true, currency: true }
+    select: {
+      id: true,
+      storeName: true,
+      currency: true,
+      saasStatus: true,
+      saasExpiry: true,
+    },
   });
 
-  if (!tenant) {
-    throw new Error('Tenant not found or disabled');
+  if (!tenant) throw new Error('Tenant not found');
+  if (tenant.saasStatus !== 'active' || (tenant.saasExpiry && tenant.saasExpiry <= new Date())) {
+    throw new Error('TENANT_SUBSCRIPTION_INACTIVE');
   }
 
   return {
     tenantId: tenant.id,
     storeName: tenant.storeName,
-    currency: tenant.currency
+    currency: tenant.currency,
+    session,
   };
 }
 
-/**
- * Scopes a prisma query object to the current tenant ID.
- * Usage: const customers = await prisma.customer.findMany({ where: withTenant(tenantId, { ... }) })
- */
-export function withTenant<T extends Record<string, any>>(tenantId: string, query: T): T & { tenantId: string } {
-  return {
-    ...query,
-    tenantId
-  };
+export function withTenant<T extends Record<string, unknown>>(
+  tenantId: string,
+  query: T,
+): T & { tenantId: string } {
+  return { ...query, tenantId };
 }
