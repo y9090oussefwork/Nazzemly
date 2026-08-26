@@ -7,6 +7,16 @@ import { writeAuditLog } from '@/lib/audit';
 
 export type DataSet = 'customers' | 'services' | 'subscriptions' | 'expenses' | 'recurring_expenses' | 'advertising';
 
+const supportedDataSets: DataSet[] = ['customers', 'services', 'subscriptions', 'expenses', 'recurring_expenses', 'advertising'];
+const backupFormat = 'nazzemly-data-backup';
+
+type MerchantBackup = {
+  format: typeof backupFormat;
+  version: 1;
+  createdAt: string;
+  data: Partial<Record<DataSet, string>>;
+};
+
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value);
   return `"${text.replace(/"/g, '""')}"`;
@@ -43,11 +53,31 @@ function parseCsv(content: string) {
   }
   row.push(field.replace(/\r$/, '').trim());
   if (row.some(Boolean)) rows.push(row);
-  if (rows.length < 2) throw new Error('الملف فارغ أو لا يحتوي على صفوف بيانات');
+  if (!rows.length) throw new Error('الملف فارغ أو لا يحتوي على صفوف بيانات');
   const headers = rows[0].map((header) => header.trim().toLowerCase());
   return rows.slice(1, 5001).map((values) =>
     Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])),
   );
+}
+
+function parseMerchantBackup(content: string) {
+  if (content.length > 40_000_000) throw new Error('حجم ملف النسخة الاحتياطية أكبر من الحد المسموح');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error('هذا ليس ملف نسخة احتياطية صالحًا من Nazzemly');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('تنسيق ملف النسخة الاحتياطية غير صحيح');
+  const candidate = parsed as Partial<MerchantBackup>;
+  if (candidate.format !== backupFormat || candidate.version !== 1 || !candidate.data || typeof candidate.data !== 'object' || Array.isArray(candidate.data)) {
+    throw new Error('ملف النسخة الاحتياطية غير مدعوم أو من إصدار مختلف');
+  }
+  const entries = supportedDataSets
+    .map((dataSet) => ({ dataSet, content: candidate.data?.[dataSet] }))
+    .filter((entry): entry is { dataSet: DataSet; content: string } => typeof entry.content === 'string');
+  if (!entries.length) throw new Error('لا يحتوي الملف على أي بيانات قابلة للاستيراد');
+  return { createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : null, entries };
 }
 
 function value(row: Record<string, string>, ...keys: string[]) {
@@ -140,6 +170,27 @@ export async function exportMerchantCsv(dataSet: DataSet) {
     return { success: true, fileName: `${safeStore}-${dataSet}-${new Date().toISOString().slice(0, 10)}.csv`, content: csv };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'تعذر تصدير البيانات' };
+  }
+}
+
+export async function exportMerchantBackup() {
+  try {
+    const { storeName } = await getActiveTenant('dashboard');
+    const data: Partial<Record<DataSet, string>> = {};
+    for (const dataSet of supportedDataSets) {
+      const result = await exportMerchantCsv(dataSet);
+      if (!result.success || !result.content) throw new Error(result.error || `تعذر تجهيز قسم ${dataSet}`);
+      data[dataSet] = result.content;
+    }
+    const archive: MerchantBackup = { format: backupFormat, version: 1, createdAt: new Date().toISOString(), data };
+    const safeStore = storeName.replace(/[^\p{L}\p{N}_-]+/gu, '-');
+    return {
+      success: true,
+      fileName: `${safeStore}-backup-${new Date().toISOString().slice(0, 10)}.nazzemly.json`,
+      content: JSON.stringify(archive),
+    };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'تعذر تجهيز النسخة الاحتياطية' };
   }
 }
 
@@ -307,5 +358,48 @@ export async function importMerchantCsv(input: { dataSet: DataSet; content: stri
     return { success: true, created, updated, skipped, total: rows.length };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'تعذر استيراد البيانات' };
+  }
+}
+
+export async function importMerchantBackup(input: { content: string }) {
+  try {
+    const { tenantId, session } = await getActiveTenant('dashboard');
+    const archive = parseMerchantBackup(input.content);
+    const results: Array<{ dataSet: DataSet; created: number; updated: number; skipped: number; total: number; success: boolean; error?: string }> = [];
+
+    for (const entry of archive.entries) {
+      const rows = parseCsv(entry.content);
+      if (!rows.length) {
+        results.push({ dataSet: entry.dataSet, created: 0, updated: 0, skipped: 0, total: 0, success: true });
+        continue;
+      }
+      const result = await importMerchantCsv(entry);
+      results.push({
+        dataSet: entry.dataSet,
+        created: result.success ? result.created ?? 0 : 0,
+        updated: result.success ? result.updated ?? 0 : 0,
+        skipped: result.success ? result.skipped ?? 0 : 0,
+        total: result.success ? result.total ?? rows.length : rows.length,
+        success: result.success,
+        ...(result.success ? {} : { error: result.error || 'تعذر استيراد هذا القسم' }),
+      });
+    }
+
+    const created = results.reduce((sum, result) => sum + result.created, 0);
+    const updated = results.reduce((sum, result) => sum + result.updated, 0);
+    const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
+    const failed = results.filter((result) => !result.success);
+    await writeAuditLog({
+      tenantId,
+      userId: session.userId,
+      action: 'data.full_backup_imported',
+      entityType: 'merchant_backup',
+      metadata: { created, updated, skipped, sections: results.map(({ dataSet, success, total }) => ({ dataSet, success, total })), backupCreatedAt: archive.createdAt },
+    });
+    revalidatePath('/dashboard');
+    revalidatePath('/dashboard/settings');
+    return { success: failed.length === 0, created, updated, skipped, results, error: failed.length ? 'تم استيراد بعض الأقسام وتعذر استيراد أقسام أخرى.' : undefined };
+  } catch (error) {
+    return { success: false, created: 0, updated: 0, skipped: 0, results: [], error: error instanceof Error ? error.message : 'تعذر استيراد النسخة الاحتياطية' };
   }
 }
