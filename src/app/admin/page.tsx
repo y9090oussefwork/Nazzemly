@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { getCurrentUser, logoutMerchant } from '@/app/actions/auth';
 import {
   getSystemStats,
@@ -13,6 +14,7 @@ import {
   approveSaaSPayment,
   rejectSaaSPayment,
 } from '@/app/actions/superadmin';
+import { getReferralAdminOverview, reviewReferralPayout, updateReferralSettings } from '@/app/actions/referrals';
 import {
   LayoutDashboard,
   Users,
@@ -28,13 +30,15 @@ import {
   Coins,
   LifeBuoy,
   Menu,
+  HandCoins,
+  Send,
 } from 'lucide-react';
 
 export default function SuperAdminPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'stats' | 'merchants' | 'payments'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'merchants' | 'payments' | 'referrals'>('stats');
   const [isPending, startTransition] = useTransition();
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -43,13 +47,15 @@ export default function SuperAdminPage() {
   const [stats, setStats] = useState<any>(null);
   const [merchants, setMerchants] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [referrals, setReferrals] = useState<any>(null);
+  const [referralForm, setReferralForm] = useState({ enabled: true, rate: 10, minimumPayout: 100 });
 
   // Modal states
   const [modalType, setModalType] = useState<'create' | 'edit' | null>(null);
   const [selectedMerchant, setSelectedMerchant] = useState<any>(null);
 
   // Form states
-  const [createForm, setCreateForm] = useState({ storeName: '', usernameInput: '', passwordInput: '' });
+  const [createForm, setCreateForm] = useState({ storeName: '', usernameInput: '', passwordInput: '', referralCode: '' });
   const [editForm, setEditForm] = useState({ plan: 'basic', status: 'active', expiry: '', balance: 0 });
 
   useEffect(() => {
@@ -81,6 +87,12 @@ export default function SuperAdminPage() {
 
       const payRes = await getSaaSPayments();
       if (payRes.success) setPayments(payRes.requests);
+
+      const referralRes = await getReferralAdminOverview();
+      if (referralRes.success && referralRes.settings) {
+        setReferrals(referralRes);
+        setReferralForm({ enabled: referralRes.settings.enabled, rate: referralRes.settings.rate, minimumPayout: referralRes.settings.minimumPayout });
+      }
     } catch (e) {
       console.error('Error loading super admin data:', e);
     } finally {
@@ -95,7 +107,7 @@ export default function SuperAdminPage() {
       if (res.success) {
         alert('تم إنشاء متجر التاجر وحسابه الإداري بنجاح!');
         setModalType(null);
-        setCreateForm({ storeName: '', usernameInput: '', passwordInput: '' });
+        setCreateForm({ storeName: '', usernameInput: '', passwordInput: '', referralCode: '' });
         await refreshAllData();
       } else {
         alert(res.error || 'فشل إنشاء المتجر');
@@ -148,6 +160,25 @@ export default function SuperAdminPage() {
     router.push('/login');
   };
 
+  const handleSaveReferralSettings = (event: React.FormEvent) => {
+    event.preventDefault();
+    startTransition(async () => {
+      const result = await updateReferralSettings(referralForm);
+      if (result.success) { alert('تم حفظ إعدادات الإحالة الجديدة. تطبق على برامج الإحالة التي تُنشأ لاحقًا.'); await refreshAllData(); }
+      else alert(result.error || 'تعذر حفظ إعدادات الإحالة');
+    });
+  };
+
+  const handleReviewPayout = (requestId: string, status: 'paid' | 'rejected') => {
+    const ownerNote = prompt(status === 'paid' ? 'اكتب مرجع التحويل أو ملاحظة للتاجر (اختياري):' : 'اكتب سبب رفض طلب السحب:');
+    if (ownerNote === null) return;
+    startTransition(async () => {
+      const result = await reviewReferralPayout(requestId, { status, ownerNote });
+      if (result.success) { alert(status === 'paid' ? 'تم تسجيل تحويل أرباح الإحالة للتاجر.' : 'تم رفض الطلب وإعادة الرصيد لمحفظة التاجر.'); await refreshAllData(); }
+      else alert(result.error || 'تعذر معالجة طلب السحب');
+    });
+  };
+
   const toDateInputValue = (expiryDate: string | Date | null | undefined) => {
     if (!expiryDate) return '';
     const date = expiryDate instanceof Date ? expiryDate : new Date(expiryDate);
@@ -172,9 +203,9 @@ export default function SuperAdminPage() {
     ? 'لوحة إحصائيات النظام'
     : activeTab === 'merchants'
       ? 'إدارة المتاجر والتجار'
-      : 'طلبات شحن المتاجر';
+      : activeTab === 'payments' ? 'طلبات شحن المتاجر' : 'الإحالات ومحافظ التجار';
 
-  const chooseTab = (tab: 'stats' | 'merchants' | 'payments') => {
+  const chooseTab = (tab: 'stats' | 'merchants' | 'payments' | 'referrals') => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
@@ -211,6 +242,13 @@ export default function SuperAdminPage() {
           >
             <LayoutDashboard className="w-5 h-5" />
             <span>نظرة عامة وإحصائيات</span>
+          </button>
+          <button
+            onClick={() => chooseTab('referrals')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs cursor-pointer transition-colors duration-150 ${activeTab === 'referrals' ? 'bg-gradient-to-l from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/10' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-white'}`}
+          >
+            <HandCoins className="w-5 h-5" />
+            <span>الإحالات والأرباح</span>
           </button>
 
           <button
@@ -295,6 +333,7 @@ export default function SuperAdminPage() {
             <button onClick={() => chooseTab('stats')} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-right text-sm font-black ${activeTab === 'stats' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-white'}`}><LayoutDashboard className="h-5 w-5" />النظرة العامة</button>
             <button onClick={() => chooseTab('merchants')} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-right text-sm font-black ${activeTab === 'merchants' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-white'}`}><Users className="h-5 w-5" />إدارة التجار</button>
             <button onClick={() => chooseTab('payments')} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-right text-sm font-black ${activeTab === 'payments' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-white'}`}><Coins className="h-5 w-5" />طلبات الشحن {pendingPayments ? <span className="mr-auto rounded-full bg-zinc-950/20 px-2 py-0.5 text-xs">{pendingPayments}</span> : null}</button>
+            <button onClick={() => chooseTab('referrals')} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-right text-sm font-black ${activeTab === 'referrals' ? 'bg-emerald-500 text-black' : 'bg-zinc-900 text-white'}`}><HandCoins className="h-5 w-5" />الإحالات والأرباح</button>
             <button onClick={() => router.push('/admin/operations')} className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-zinc-900 px-4 text-right text-sm font-black text-zinc-200"><ShieldCheck className="h-5 w-5 text-emerald-400" />الباقات وسجل التدقيق</button>
             <button onClick={() => router.push('/admin/support')} className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-zinc-900 px-4 text-right text-sm font-black text-zinc-200"><LifeBuoy className="h-5 w-5 text-emerald-400" />دعم التجار</button>
           </nav>
@@ -381,7 +420,7 @@ export default function SuperAdminPage() {
                 <h2 className="text-sm font-black text-zinc-300">سجل متاجر التجار والاشتراكات</h2>
                 <button
                   onClick={() => {
-                    setCreateForm({ storeName: '', usernameInput: '', passwordInput: '' });
+                    setCreateForm({ storeName: '', usernameInput: '', passwordInput: '', referralCode: '' });
                     setModalType('create');
                   }}
                   className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-black text-black transition-colors hover:bg-emerald-400"
@@ -426,6 +465,8 @@ export default function SuperAdminPage() {
                           {m._count.customers} عملاء | {m._count.subscriptions} اشتراكات
                         </td>
                         <td className="p-4">
+                          <div className="flex items-center gap-1">
+                          <Link href={`/admin/merchants/${m.id}`} className="p-2 hover:bg-zinc-800 text-emerald-300 hover:text-emerald-200 rounded-xl transition-colors" title="فتح ملف التاجر"><Users className="w-4 h-4" /></Link>
                           <button
                             onClick={() => {
                               setSelectedMerchant(m);
@@ -441,12 +482,35 @@ export default function SuperAdminPage() {
                           >
                             <Edit className="w-4 h-4" />
                           </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'referrals' && (
+            <div className="space-y-6 animate-fadeUp">
+              <div className="grid gap-4 lg:grid-cols-3">
+                <form onSubmit={handleSaveReferralSettings} className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5 lg:col-span-1">
+                  <h2 className="flex items-center gap-2 text-sm font-black text-white"><HandCoins className="h-5 w-5 text-emerald-300" />إعدادات برنامج الإحالة</h2>
+                  <p className="mt-2 text-xs leading-6 text-zinc-300">النسبة الجديدة تستخدم مع برامج الإحالة الجديدة، وتحافظ البرامج القائمة على نسبتها المسجلة لضمان العدالة.</p>
+                  <label className="mt-4 flex items-center gap-2 text-xs font-bold text-zinc-200"><input type="checkbox" checked={referralForm.enabled} onChange={(event) => setReferralForm({ ...referralForm, enabled: event.target.checked })} className="h-4 w-4 accent-emerald-500" />تشغيل الإحالات</label>
+                  <label className="mt-4 block text-xs font-bold text-zinc-300">نسبة العمولة الافتراضية<input type="number" min="0" max="100" step="0.01" value={referralForm.rate} onChange={(event) => setReferralForm({ ...referralForm, rate: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /></label>
+                  <label className="mt-4 block text-xs font-bold text-zinc-300">الحد الأدنى للسحب (EGP)<input type="number" min="1" step="0.01" value={referralForm.minimumPayout} onChange={(event) => setReferralForm({ ...referralForm, minimumPayout: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /></label>
+                  <button disabled={isPending} className="mt-5 min-h-11 w-full rounded-xl bg-emerald-500 px-4 text-sm font-black text-zinc-950 disabled:opacity-60">حفظ إعدادات الإحالة</button>
+                </form>
+                <div className="grid gap-3 sm:grid-cols-3 lg:col-span-2">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5"><p className="text-xs font-bold text-zinc-300">إجمالي عمولات الإحالة</p><p className="mt-3 text-2xl font-black text-emerald-300">{Number(referrals?.totals?.commissions || 0).toFixed(2)} EGP</p></div>
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5"><p className="text-xs font-bold text-zinc-300">تجار من خلال إحالة</p><p className="mt-3 text-2xl font-black text-white">{referrals?.totals?.referrals || 0}</p></div>
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5"><p className="text-xs font-bold text-zinc-300">سحوبات بانتظار التحويل</p><p className="mt-3 text-2xl font-black text-amber-200">{Number(referrals?.totals?.pendingPayouts || 0).toFixed(2)} EGP</p></div>
+                </div>
+              </div>
+              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5"><h2 className="text-sm font-black text-white">طلبات سحب أرباح الإحالة</h2><div className="mt-4 overflow-x-auto"><table className="min-w-[760px] w-full text-right text-xs"><thead className="border-b border-zinc-800 text-zinc-400"><tr><th className="pb-3">التاجر</th><th className="pb-3">المبلغ</th><th className="pb-3">طريقة الاستلام</th><th className="pb-3">البيانات</th><th className="pb-3">التاريخ</th><th className="pb-3">إجراء</th></tr></thead><tbody className="divide-y divide-zinc-800">{referrals?.payoutRequests?.map((request: any) => <tr key={request.id}><td className="py-3 font-bold text-white">{request.tenant.storeName}</td><td className="py-3 font-black text-emerald-300">{Number(request.amount).toFixed(2)} EGP</td><td className="py-3 text-zinc-300">{request.method}</td><td className="py-3 text-zinc-300">{request.accountIdentifier}</td><td className="py-3 text-zinc-400">{new Date(request.requestedAt).toLocaleDateString('ar-EG')}</td><td className="py-3"><div className="flex gap-2"><button onClick={() => handleReviewPayout(request.id, 'paid')} className="rounded-lg bg-emerald-500/15 px-2 py-1.5 font-bold text-emerald-200">تم التحويل</button><button onClick={() => handleReviewPayout(request.id, 'rejected')} className="rounded-lg bg-rose-500/15 px-2 py-1.5 font-bold text-rose-100">رفض</button></div></td></tr>)}{!referrals?.payoutRequests?.length ? <tr><td colSpan={6} className="py-6 text-center text-zinc-400">لا توجد طلبات سحب معلقة.</td></tr> : null}</tbody></table></div></section>
+              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5"><h2 className="text-sm font-black text-white">برامج الإحالة للتجار</h2><div className="mt-4 overflow-x-auto"><table className="min-w-[800px] w-full text-right text-xs"><thead className="border-b border-zinc-800 text-zinc-400"><tr><th className="pb-3">التاجر</th><th className="pb-3">رمز الإحالة</th><th className="pb-3">النسبة</th><th className="pb-3">المدعوون</th><th className="pb-3">متاح</th><th className="pb-3">إجراء</th></tr></thead><tbody className="divide-y divide-zinc-800">{referrals?.programs?.map((program: any) => <tr key={program.id}><td className="py-3 font-bold text-white">{program.tenant.storeName}</td><td className="py-3 font-mono text-zinc-300">{program.code}</td><td className="py-3 text-emerald-300">{Number(program.commissionRate).toFixed(0)}%</td><td className="py-3 text-zinc-200">{program._count.attributions}</td><td className="py-3 text-zinc-200">{Number(program.availableBalance).toFixed(2)} EGP</td><td className="py-3"><Link href={`/admin/merchants/${program.tenant.id}`} className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 px-2 py-1.5 font-bold text-zinc-100 hover:bg-zinc-800">فتح ملف التاجر<Send className="h-3.5 w-3.5" /></Link></td></tr>)}</tbody></table></div></section>
             </div>
           )}
 
@@ -558,6 +622,18 @@ export default function SuperAdminPage() {
                     dir="ltr"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-400 mb-2">رمز إحالة (اختياري)</label>
+                  <input
+                    type="text"
+                    value={createForm.referralCode}
+                    onChange={(e) => setCreateForm({ ...createForm, referralCode: e.target.value.toUpperCase() })}
+                    placeholder="NZ-XXXXXXXX"
+                    className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 text-left font-mono"
+                    dir="ltr"
+                  />
+                  <p className="mt-1 text-[10px] leading-5 text-zinc-500">إن أدخلته، يُربط التاجر الجديد بصاحب الرمز ويحصل صاحبه على عمولة عند التجديد.</p>
                 </div>
 
                 <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">

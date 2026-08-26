@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   CheckCircle2,
 } from 'lucide-react';
+import ReferralCenter from './referral-center';
 
 export default function BillingPage() {
   const router = useRouter();
@@ -483,6 +484,8 @@ export default function BillingPage() {
               </div>
             )}
           </div>
+
+          <ReferralCenter />
 
         </div>
 

@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword } from '@/lib/security';
 import { money, requirePositiveMoney } from '@/lib/money';
 import { cleanText, oneOf } from '@/lib/validation';
 import { writeAuditLog } from '@/lib/audit';
+import { awardReferralCommissionForInvoice } from '@/lib/referrals';
 
 const PAYMENT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
 
@@ -236,6 +237,12 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
             paidAt: now,
             metadata: { plan: plan.code, months, source: 'saas_balance' },
           },
+        });
+        await awardReferralCommissionForInvoice(tx, {
+          invoiceId: invoice.id,
+          tenantId: tenant.id,
+          amount,
+          currency: tenant.currency,
         });
         const updatedTenant = await tx.tenant.findUniqueOrThrow({
           where: { id: tenant.id },

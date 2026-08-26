@@ -8,6 +8,7 @@ import { hashPassword } from '@/lib/security';
 import { money, requirePositiveMoney } from '@/lib/money';
 import { cleanText, dateValue, normalizeUsername, oneOf, optionalText } from '@/lib/validation';
 import { writeAuditLog } from '@/lib/audit';
+import { attachReferralCode, ensureReferralProgram } from '@/lib/referrals';
 
 const TENANT_STATUSES = ['active', 'suspended', 'expired', 'cancelled'] as const;
 const DEFAULT_PERMISSIONS = [
@@ -184,6 +185,57 @@ export async function getMerchants(searchInput = '') {
   }
 }
 
+export async function getMerchantOwnerProfile(tenantIdInput: string) {
+  try {
+    await requireSuperAdmin();
+    const tenantId = cleanText(tenantIdInput, 'التاجر', 5, 100);
+    const [merchant, invoices, paymentRequests, recentCustomers, recentSubscriptions, auditLogs] = await Promise.all([
+      prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          id: true, slug: true, storeName: true, currency: true, timezone: true, locale: true, businessType: true, businessDescription: true, websiteUrl: true, createdAt: true,
+          saasPlan: true, saasStatus: true, saasExpiry: true, saasBalance: true, autoRenew: true, maxUsers: true, maxCustomers: true,
+          users: { select: { id: true, username: true, fullName: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+          contacts: { select: { type: true, label: true, value: true, isPrimary: true, showInBot: true }, orderBy: { sortOrder: 'asc' } },
+          paymentMethods: { select: { type: true, label: true, accountIdentifier: true, isActive: true, showInBot: true }, orderBy: { sortOrder: 'asc' } },
+          botSettings: { select: { botUsername: true, botName: true, tokenLast4: true, isActive: true, connectionStatus: true, lastWebhookAt: true, lastHealthCheckAt: true, lastError: true } },
+          referralProgram: { select: { code: true, isActive: true, commissionRate: true, availableBalance: true, pendingBalance: true, totalEarned: true, totalRedeemed: true, totalPaidOut: true, _count: { select: { attributions: true, payoutRequests: true } } } },
+          _count: { select: { customers: true, subscriptions: true, orders: true, services: true, supportTickets: true, warrantyCases: true } },
+        },
+      }),
+      prisma.platformInvoice.findMany({ where: { tenantId }, select: { id: true, number: true, amount: true, currency: true, status: true, dueAt: true, paidAt: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 30 }),
+      prisma.saaSPaymentRequest.findMany({ where: { tenantId }, select: { id: true, amount: true, method: true, senderIdentifier: true, status: true, notes: true, processedAt: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 30 }),
+      prisma.customer.findMany({ where: { tenantId, deletedAt: null }, select: { id: true, name: true, phone: true, stage: true, walletBalance: true, lastContactAt: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      prisma.subscription.findMany({ where: { tenantId }, select: { id: true, status: true, startDate: true, endDate: true, sellingPrice: true, customer: { select: { name: true } }, service: { select: { name: true } }, servicePlan: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 30 }),
+      prisma.auditLog.findMany({ where: { tenantId }, select: { id: true, action: true, entityType: true, entityId: true, metadata: true, createdAt: true, user: { select: { username: true } } }, orderBy: { createdAt: 'desc' }, take: 50 }),
+    ]);
+    if (!merchant) throw new Error('التاجر غير موجود');
+    return {
+      success: true,
+      merchant: {
+        ...merchant,
+        saasBalance: money(merchant.saasBalance),
+        referralProgram: merchant.referralProgram ? {
+          ...merchant.referralProgram,
+          commissionRate: money(merchant.referralProgram.commissionRate),
+          availableBalance: money(merchant.referralProgram.availableBalance),
+          pendingBalance: money(merchant.referralProgram.pendingBalance),
+          totalEarned: money(merchant.referralProgram.totalEarned),
+          totalRedeemed: money(merchant.referralProgram.totalRedeemed),
+          totalPaidOut: money(merchant.referralProgram.totalPaidOut),
+        } : null,
+      },
+      invoices: invoices.map((item) => ({ ...item, amount: money(item.amount) })),
+      paymentRequests: paymentRequests.map((item) => ({ ...item, amount: money(item.amount) })),
+      customers: recentCustomers.map((item) => ({ ...item, walletBalance: money(item.walletBalance) })),
+      subscriptions: recentSubscriptions.map((item) => ({ ...item, sellingPrice: money(item.sellingPrice) })),
+      auditLogs,
+    };
+  } catch (error) {
+    return { success: false, error: safeError(error, 'تعذر تحميل ملف التاجر') };
+  }
+}
+
 export async function createMerchant(data: {
   storeName: string;
   usernameInput: string;
@@ -191,6 +243,7 @@ export async function createMerchant(data: {
   email?: string;
   planCode?: string;
   trialDays?: number;
+  referralCode?: string;
 }) {
   try {
     const owner = await requireSuperAdmin();
@@ -259,7 +312,12 @@ export async function createMerchant(data: {
           currentPeriodEnd: expiry,
         },
       });
-      return { tenant, user };
+      await ensureReferralProgram(tx, tenant.id);
+      const attribution = await attachReferralCode(tx, {
+        referredTenantId: tenant.id,
+        code: optionalText(data.referralCode, 32),
+      });
+      return { tenant, user, attribution };
     });
 
     await writeAuditLog({
@@ -268,7 +326,7 @@ export async function createMerchant(data: {
       action: 'tenant.created',
       entityType: 'Tenant',
       entityId: result.tenant.id,
-      metadata: { plan: plan.code, trialDays, adminUsername: result.user.username },
+      metadata: { plan: plan.code, trialDays, adminUsername: result.user.username, referred: Boolean(result.attribution) },
     });
     revalidatePath('/admin');
     return {

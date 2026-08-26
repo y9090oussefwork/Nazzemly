@@ -3,6 +3,7 @@ import 'server-only';
 import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { money } from '@/lib/money';
+import { awardReferralCommissionForInvoice } from '@/lib/referrals';
 
 const RENEWAL_WINDOW_DAYS = 2;
 const BILLING_MONTHS = [1, 3, 6, 12] as const;
@@ -119,7 +120,7 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
             },
           });
         }
-        await tx.platformInvoice.create({
+        const invoice = await tx.platformInvoice.create({
           data: {
             tenantId: candidate.id,
             number: `INV-AUTO-${Date.now()}-${candidate.id.slice(-6).toUpperCase()}`,
@@ -130,6 +131,12 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
             paidAt: now,
             metadata: { plan: plan.code, months, source: 'saas_auto_renewal' },
           },
+        });
+        await awardReferralCommissionForInvoice(tx, {
+          invoiceId: invoice.id,
+          tenantId: candidate.id,
+          amount,
+          currency: candidate.currency,
         });
         return true;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

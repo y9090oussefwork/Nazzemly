@@ -17,6 +17,35 @@ type MerchantBackup = {
   data: Partial<Record<DataSet, string>>;
 };
 
+type MerchantRestoreBackup = {
+  format: typeof backupFormat;
+  version: 2;
+  createdAt: string;
+  productVersion: string;
+  scope: 'merchant_operational_data';
+  sections: Record<string, unknown[]>;
+};
+
+const restoreSectionLabels: Record<string, string> = {
+  merchant_profile: 'بيانات المتجر',
+  contacts: 'وسائل التواصل',
+  payment_methods: 'طرق الدفع',
+  bot_configuration: 'إعدادات البوت',
+  categories: 'تصنيفات الخدمات',
+  services: 'الخدمات والباقات',
+  customers: 'العملاء',
+  subscriptions: 'الاشتراكات',
+  orders: 'الطلبات والتنفيذ',
+  account_pool: 'المخزون وبيانات التسليم',
+  interests: 'طلبات الاهتمام بالخدمات',
+  wallet: 'محافظ العملاء وطلبات الشحن',
+  customer_operations: 'المهام والصفقات وسجل العملاء',
+  messages: 'القوالب والإشعارات',
+  warranties: 'الضمانات والمشكلات',
+  financials: 'المصروفات والإعلانات',
+  support: 'تذاكر الدعم',
+};
+
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value);
   return `"${text.replace(/"/g, '""')}"`;
@@ -78,6 +107,20 @@ function parseMerchantBackup(content: string) {
     .filter((entry): entry is { dataSet: DataSet; content: string } => typeof entry.content === 'string');
   if (!entries.length) throw new Error('لا يحتوي الملف على أي بيانات قابلة للاستيراد');
   return { createdAt: typeof candidate.createdAt === 'string' ? candidate.createdAt : null, entries };
+}
+
+function parseMerchantRestoreBackup(content: string): MerchantRestoreBackup | null {
+  if (content.length > 80_000_000) throw new Error('حجم ملف النسخة الاحتياطية أكبر من الحد المسموح');
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { throw new Error('هذا ليس ملف نسخة احتياطية صالحًا من Nazzemly'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('تنسيق ملف النسخة الاحتياطية غير صحيح');
+  const candidate = parsed as Partial<MerchantRestoreBackup>;
+  if (candidate.format !== backupFormat || candidate.version !== 2) return null;
+  if (!candidate.sections || typeof candidate.sections !== 'object' || Array.isArray(candidate.sections)) throw new Error('ملف الاسترداد لا يحتوي على أقسام صالحة');
+  for (const [section, rows] of Object.entries(candidate.sections)) {
+    if (!restoreSectionLabels[section] || !Array.isArray(rows)) throw new Error('ملف الاسترداد يحتوي على قسم غير مدعوم');
+  }
+  return candidate as MerchantRestoreBackup;
 }
 
 function value(row: Record<string, string>, ...keys: string[]) {
@@ -175,14 +218,58 @@ export async function exportMerchantCsv(dataSet: DataSet) {
 
 export async function exportMerchantBackup() {
   try {
-    const { storeName } = await getActiveTenant('dashboard');
-    const data: Partial<Record<DataSet, string>> = {};
-    for (const dataSet of supportedDataSets) {
-      const result = await exportMerchantCsv(dataSet);
-      if (!result.success || !result.content) throw new Error(result.error || `تعذر تجهيز قسم ${dataSet}`);
-      data[dataSet] = result.content;
-    }
-    const archive: MerchantBackup = { format: backupFormat, version: 1, createdAt: new Date().toISOString(), data };
+    const { tenantId, storeName } = await getActiveTenant('dashboard');
+    const [tenant, contacts, paymentMethods, bot, categories, services, customers, subscriptions, interests, orders, accountPool, walletTransactions, paymentRequests, tasks, deals, activities, templates, notifications, warrantyCases, expenses, recurringExpenses, advertising, supportTickets] = await Promise.all([
+      prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { storeName: true, currency: true, timezone: true, locale: true, reminderDays: true, notifEmail: true, logoUrl: true, businessType: true, businessDescription: true, websiteUrl: true, onboardingStep: true, onboardingCompletedAt: true } }),
+      prisma.tenantContact.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
+      prisma.tenantPaymentMethod.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
+      prisma.botSettings.findUnique({ where: { tenantId }, select: { botUsername: true, botName: true, tokenLast4: true, isActive: true, welcomeMsg: true, supportMessage: true, menuConfig: true, channelChatId: true, channelUrl: true, requireChannelJoin: true, autoPostServices: true, autoPostRestocks: true, automations: true, broadcasts: true } }),
+      prisma.serviceCategory.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
+      prisma.service.findMany({ where: { tenantId }, include: { plans: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
+      prisma.customer.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.subscription.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.serviceInterest.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.order.findMany({ where: { tenantId }, include: { inputValues: true, events: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.accountPool.findMany({ where: { tenantId }, include: { allocations: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.walletTransaction.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.paymentRequest.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.task.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.deal.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.customerActivity.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.messageTemplate.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.notification.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.warrantyCase.findMany({ where: { tenantId }, include: { events: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.expense.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.recurringExpense.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.adCampaign.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.supportTicket.findMany({ where: { tenantId }, include: { messages: true }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    const archive: MerchantRestoreBackup = {
+      format: backupFormat,
+      version: 2,
+      createdAt: new Date().toISOString(),
+      productVersion: 'nazzemly-restore-v2',
+      scope: 'merchant_operational_data',
+      sections: {
+        merchant_profile: [tenant],
+        contacts,
+        payment_methods: paymentMethods,
+        bot_configuration: bot ? [bot] : [],
+        categories,
+        services,
+        customers,
+        subscriptions,
+        interests,
+        orders,
+        account_pool: accountPool,
+        wallet: [{ walletTransactions, paymentRequests }],
+        customer_operations: [{ tasks, deals, activities }],
+        messages: [{ templates, notifications }],
+        warranties: warrantyCases,
+        financials: [{ expenses, recurringExpenses, advertising }],
+        support: supportTickets,
+      },
+    };
     const safeStore = storeName.replace(/[^\p{L}\p{N}_-]+/gu, '-');
     return {
       success: true,
@@ -361,9 +448,148 @@ export async function importMerchantCsv(input: { dataSet: DataSet; content: stri
   }
 }
 
+type RestoreResult = { dataSet: string; created: number; updated: number; skipped: number; total: number; success: boolean; error?: string };
+
+function restoreRows(archive: MerchantRestoreBackup, key: string) {
+  const rows = archive.sections[key];
+  return Array.isArray(rows) ? rows as Array<Record<string, any>> : [];
+}
+
+function toTenantRow(row: Record<string, any>, tenantId: string, omit: string[] = []) {
+  const copy = { ...row };
+  delete copy.tenantId;
+  for (const key of omit) delete copy[key];
+  return { ...copy, tenantId };
+}
+
+async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBackup; tenantId: string; userId: string }) {
+  const { archive, tenantId, userId } = input;
+  const results: RestoreResult[] = [];
+  const rows = (key: string) => restoreRows(archive, key);
+  const record = (dataSet: string, total: number, created: number) => results.push({ dataSet, total, created, updated: 0, skipped: Math.max(0, total - created), success: true });
+
+  await prisma.$transaction(async (tx) => {
+    const profile = rows('merchant_profile')[0];
+    if (profile) {
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...profileData } = profile;
+      await tx.tenant.update({ where: { id: tenantId }, data: profileData as any });
+      record('merchant_profile', 1, 1);
+    }
+
+    const contacts = rows('contacts').map((row) => toTenantRow(row, tenantId));
+    if (contacts.length) record('contacts', contacts.length, (await tx.tenantContact.createMany({ data: contacts as any, skipDuplicates: true })).count);
+    const paymentMethods = rows('payment_methods').map((row) => toTenantRow(row, tenantId));
+    if (paymentMethods.length) record('payment_methods', paymentMethods.length, (await tx.tenantPaymentMethod.createMany({ data: paymentMethods as any, skipDuplicates: true })).count);
+
+    const bot = rows('bot_configuration')[0];
+    if (bot) {
+      const { automations: sourceAutomations, broadcasts: sourceBroadcasts, ...botData } = bot;
+      const settings = await tx.botSettings.upsert({ where: { tenantId }, update: { ...botData, connectionStatus: 'disconnected', isActive: false } as any, create: { tenantId, ...botData, connectionStatus: 'disconnected', isActive: false } as any });
+      const automations = Array.isArray(sourceAutomations) ? sourceAutomations.map((row: Record<string, any>) => ({ ...toTenantRow(row, tenantId), botSettingsId: settings.id })) : [];
+      if (automations.length) await tx.botAutomation.createMany({ data: automations as any, skipDuplicates: true });
+      const broadcasts = Array.isArray(sourceBroadcasts) ? sourceBroadcasts.map((row: Record<string, any>) => ({ ...toTenantRow(row, tenantId), botSettingsId: settings.id })) : [];
+      if (broadcasts.length) await tx.botBroadcast.createMany({ data: broadcasts as any, skipDuplicates: true });
+      record('bot_configuration', 1, 1);
+    }
+
+    const categories = rows('categories').map((row) => toTenantRow(row, tenantId));
+    if (categories.length) record('categories', categories.length, (await tx.serviceCategory.createMany({ data: categories as any, skipDuplicates: true })).count);
+    const serviceRows = rows('services');
+    const services = serviceRows.map(({ plans: _plans, ...row }) => toTenantRow(row, tenantId));
+    if (services.length) record('services', services.length, (await tx.service.createMany({ data: services as any, skipDuplicates: true })).count);
+    const plans = serviceRows.flatMap((service) => Array.isArray(service.plans) ? service.plans.map((plan: Record<string, any>) => toTenantRow(plan, tenantId)) : []);
+    if (plans.length) record('services', plans.length, (await tx.servicePlan.createMany({ data: plans as any, skipDuplicates: true })).count);
+
+    const customers = rows('customers').map((row) => toTenantRow(row, tenantId, ['assignedToId', 'createdBy']));
+    if (customers.length) record('customers', customers.length, (await tx.customer.createMany({ data: customers as any, skipDuplicates: true })).count);
+    const subscriptions = rows('subscriptions').map((row) => toTenantRow(row, tenantId, ['createdBy']));
+    if (subscriptions.length) record('subscriptions', subscriptions.length, (await tx.subscription.createMany({ data: subscriptions as any, skipDuplicates: true })).count);
+    const interests = rows('interests').map((row) => toTenantRow(row, tenantId));
+    if (interests.length) record('interests', interests.length, (await tx.serviceInterest.createMany({ data: interests as any, skipDuplicates: true })).count);
+
+    const orderRows = rows('orders');
+    const orders = orderRows.map(({ inputValues: _inputValues, events: _events, ...row }) => toTenantRow(row, tenantId, ['assignedToId']));
+    if (orders.length) record('orders', orders.length, (await tx.order.createMany({ data: orders as any, skipDuplicates: true })).count);
+    const inputs = orderRows.flatMap((order) => Array.isArray(order.inputValues) ? order.inputValues.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : []);
+    if (inputs.length) record('orders', inputs.length, (await tx.orderInputValue.createMany({ data: inputs as any, skipDuplicates: true })).count);
+    const events = orderRows.flatMap((order) => Array.isArray(order.events) ? order.events.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['actorId'])) : []);
+    if (events.length) record('orders', events.length, (await tx.orderEvent.createMany({ data: events as any, skipDuplicates: true })).count);
+
+    const accountRows = rows('account_pool');
+    const accountPool = accountRows.map(({ allocations: _allocations, ...row }) => toTenantRow(row, tenantId));
+    if (accountPool.length) record('account_pool', accountPool.length, (await tx.accountPool.createMany({ data: accountPool as any, skipDuplicates: true })).count);
+    const allocations = accountRows.flatMap((account) => Array.isArray(account.allocations) ? account.allocations.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : []);
+    if (allocations.length) record('account_pool', allocations.length, (await tx.deliveryAllocation.createMany({ data: allocations as any, skipDuplicates: true })).count);
+
+    const wallet = rows('wallet')[0] || {};
+    const walletTransactions = Array.isArray(wallet.walletTransactions) ? wallet.walletTransactions.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['createdById'])) : [];
+    if (walletTransactions.length) record('wallet', walletTransactions.length, (await tx.walletTransaction.createMany({ data: walletTransactions as any, skipDuplicates: true })).count);
+    const paymentRequests = Array.isArray(wallet.paymentRequests) ? wallet.paymentRequests.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['approvedById'])) : [];
+    if (paymentRequests.length) record('wallet', paymentRequests.length, (await tx.paymentRequest.createMany({ data: paymentRequests as any, skipDuplicates: true })).count);
+
+    const operations = rows('customer_operations')[0] || {};
+    const tasks = Array.isArray(operations.tasks) ? operations.tasks.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['assignedToId', 'createdById'])) : [];
+    if (tasks.length) record('customer_operations', tasks.length, (await tx.task.createMany({ data: tasks as any, skipDuplicates: true })).count);
+    const deals = Array.isArray(operations.deals) ? operations.deals.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['ownerId'])) : [];
+    if (deals.length) record('customer_operations', deals.length, (await tx.deal.createMany({ data: deals as any, skipDuplicates: true })).count);
+    const activities = Array.isArray(operations.activities) ? operations.activities.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['userId'])) : [];
+    if (activities.length) record('customer_operations', activities.length, (await tx.customerActivity.createMany({ data: activities as any, skipDuplicates: true })).count);
+
+    const messages = rows('messages')[0] || {};
+    const templates = Array.isArray(messages.templates) ? messages.templates.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : [];
+    if (templates.length) record('messages', templates.length, (await tx.messageTemplate.createMany({ data: templates as any, skipDuplicates: true })).count);
+    const notifications = Array.isArray(messages.notifications) ? messages.notifications.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['userId'])) : [];
+    if (notifications.length) record('messages', notifications.length, (await tx.notification.createMany({ data: notifications as any, skipDuplicates: true })).count);
+
+    const warrantyRows = rows('warranties');
+    const warrantyCases = warrantyRows.map(({ events: _events, ...row }) => toTenantRow(row, tenantId, ['assignedToId']));
+    if (warrantyCases.length) record('warranties', warrantyCases.length, (await tx.warrantyCase.createMany({ data: warrantyCases as any, skipDuplicates: true })).count);
+    const warrantyEvents = warrantyRows.flatMap((warranty) => Array.isArray(warranty.events) ? warranty.events.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['actorId'])) : []);
+    if (warrantyEvents.length) record('warranties', warrantyEvents.length, (await tx.warrantyEvent.createMany({ data: warrantyEvents as any, skipDuplicates: true })).count);
+
+    const financials = rows('financials')[0] || {};
+    const recurringExpenses = Array.isArray(financials.recurringExpenses) ? financials.recurringExpenses.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['createdBy'])) : [];
+    if (recurringExpenses.length) record('financials', recurringExpenses.length, (await tx.recurringExpense.createMany({ data: recurringExpenses as any, skipDuplicates: true })).count);
+    const expenses = Array.isArray(financials.expenses) ? financials.expenses.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['createdBy'])) : [];
+    if (expenses.length) record('financials', expenses.length, (await tx.expense.createMany({ data: expenses as any, skipDuplicates: true })).count);
+    const advertising = Array.isArray(financials.advertising) ? financials.advertising.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : [];
+    if (advertising.length) record('financials', advertising.length, (await tx.adCampaign.createMany({ data: advertising as any, skipDuplicates: true })).count);
+
+    const tickets = rows('support');
+    let ticketsCreated = 0;
+    let messagesCreated = 0;
+    for (const ticket of tickets) {
+      const { messages: sourceMessages, createdById: _createdById, ...ticketData } = ticket;
+      try {
+        await tx.supportTicket.create({ data: { ...toTenantRow(ticketData, tenantId), createdById: userId } as any });
+        ticketsCreated += 1;
+        if (Array.isArray(sourceMessages)) {
+          const createdMessages = await tx.supportMessage.createMany({ data: sourceMessages.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['authorId'])) as any, skipDuplicates: true });
+          messagesCreated += createdMessages.count;
+        }
+      } catch (error: any) {
+        if (error?.code !== 'P2002') throw error;
+      }
+    }
+    if (tickets.length) record('support', tickets.length + tickets.flatMap((ticket) => Array.isArray(ticket.messages) ? ticket.messages : []).length, ticketsCreated + messagesCreated);
+  }, { isolationLevel: 'Serializable', timeout: 30000 });
+
+  return results;
+}
+
 export async function importMerchantBackup(input: { content: string }) {
   try {
     const { tenantId, session } = await getActiveTenant('dashboard');
+    const restoreArchive = parseMerchantRestoreBackup(input.content);
+    if (restoreArchive) {
+      const results = await importMerchantRestoreBackup({ archive: restoreArchive, tenantId, userId: session.userId });
+      const created = results.reduce((sum, result) => sum + result.created, 0);
+      const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
+      await writeAuditLog({ tenantId, userId: session.userId, action: 'data.restore_backup_imported', entityType: 'merchant_restore_backup', metadata: { created, skipped, sections: results.map(({ dataSet, total }) => ({ dataSet, total })), backupCreatedAt: restoreArchive.createdAt } });
+      revalidatePath('/dashboard');
+      revalidatePath('/dashboard/settings');
+      return { success: true, created, updated: 0, skipped, results };
+    }
     const archive = parseMerchantBackup(input.content);
     const results: Array<{ dataSet: DataSet; created: number; updated: number; skipped: number; total: number; success: boolean; error?: string }> = [];
 

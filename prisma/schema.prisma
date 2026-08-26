@@ -8,29 +8,29 @@ datasource db {
 }
 
 model Tenant {
-  id                    String                 @id @default(cuid())
-  slug                  String?                @unique
+  id                    String                      @id @default(cuid())
+  slug                  String?                     @unique
   storeName             String
-  currency              String                 @default("EGP")
-  timezone              String                 @default("Africa/Cairo")
-  locale                String                 @default("ar")
-  reminderDays          Int                    @default(3)
+  currency              String                      @default("EGP")
+  timezone              String                      @default("Africa/Cairo")
+  locale                String                      @default("ar")
+  reminderDays          Int                         @default(3)
   notifEmail            String?
   logoUrl               String?
   businessType          String?
   businessDescription   String?
   websiteUrl            String?
-  onboardingStep        Int                    @default(0)
+  onboardingStep        Int                         @default(0)
   onboardingCompletedAt DateTime?
-  saasBalance           Decimal                @default(0.0) @db.Decimal(18, 2)
-  saasPlan              String                 @default("free_trial")
-  saasStatus            String                 @default("active")
+  saasBalance           Decimal                     @default(0.0) @db.Decimal(18, 2)
+  saasPlan              String                      @default("free_trial")
+  saasStatus            String                      @default("active")
   saasExpiry            DateTime?
-  autoRenew             Boolean                @default(false)
-  maxUsers              Int                    @default(3)
-  maxCustomers          Int                    @default(500)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @default(now()) @updatedAt
+  autoRenew             Boolean                     @default(false)
+  maxUsers              Int                         @default(3)
+  maxCustomers          Int                         @default(500)
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @default(now()) @updatedAt
   users                 User[]
   sessions              Session[]
   customers             Customer[]
@@ -72,6 +72,10 @@ model Tenant {
   notifications         Notification[]
   warrantyCases         WarrantyCase[]
   warrantyEvents        WarrantyEvent[]
+  referralProgram       ReferralProgram?
+  referredBy            ReferralAttribution?        @relation("ReferredTenant")
+  referralWalletEntries ReferralWalletTransaction[] @relation("ReferralWalletTenant")
+  referralPayouts       ReferralPayoutRequest[]
 }
 
 model BotSettings {
@@ -144,39 +148,40 @@ model TenantPaymentMethod {
 }
 
 model User {
-  id                    String               @id @default(cuid())
-  tenantId              String
-  username              String               @unique
-  email                 String?
-  fullName              String?
-  password              String
-  role                  String               @default("user")
-  permissions           String[]
-  isActive              Boolean              @default(true)
-  failedLoginAttempts   Int                  @default(0)
-  lockedUntil           DateTime?
-  lastLoginAt           DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @default(now()) @updatedAt
-  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions              Session[]
-  assignedCustomers     Customer[]           @relation("CustomerAssignee")
-  assignedTasks         Task[]               @relation("TaskAssignee")
-  createdTasks          Task[]               @relation("TaskCreator")
-  ownedDeals            Deal[]               @relation("DealOwner")
-  activities            CustomerActivity[]
-  walletTransactions    WalletTransaction[]
-  approvedPayments      PaymentRequest[]     @relation("PaymentApprover")
-  approvedSaaSPayments  SaaSPaymentRequest[] @relation("SaaSPaymentApprover")
-  auditLogs             AuditLog[]
-  apiKeys               ApiKey[]
-  supportTickets        SupportTicket[]      @relation("SupportTicketCreator")
-  supportMessages       SupportMessage[]     @relation("SupportMessageAuthor")
-  assignedOrders        Order[]              @relation("OrderAssignee")
-  orderEvents           OrderEvent[]         @relation("OrderEventActor")
-  assignedWarrantyCases WarrantyCase[]       @relation("WarrantyAssignee")
-  warrantyEvents        WarrantyEvent[]      @relation("WarrantyActor")
-  notifications         Notification[]       @relation("NotificationRecipient")
+  id                       String                  @id @default(cuid())
+  tenantId                 String
+  username                 String                  @unique
+  email                    String?
+  fullName                 String?
+  password                 String
+  role                     String                  @default("user")
+  permissions              String[]
+  isActive                 Boolean                 @default(true)
+  failedLoginAttempts      Int                     @default(0)
+  lockedUntil              DateTime?
+  lastLoginAt              DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @default(now()) @updatedAt
+  tenant                   Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions                 Session[]
+  assignedCustomers        Customer[]              @relation("CustomerAssignee")
+  assignedTasks            Task[]                  @relation("TaskAssignee")
+  createdTasks             Task[]                  @relation("TaskCreator")
+  ownedDeals               Deal[]                  @relation("DealOwner")
+  activities               CustomerActivity[]
+  walletTransactions       WalletTransaction[]
+  approvedPayments         PaymentRequest[]        @relation("PaymentApprover")
+  approvedSaaSPayments     SaaSPaymentRequest[]    @relation("SaaSPaymentApprover")
+  auditLogs                AuditLog[]
+  apiKeys                  ApiKey[]
+  supportTickets           SupportTicket[]         @relation("SupportTicketCreator")
+  supportMessages          SupportMessage[]        @relation("SupportMessageAuthor")
+  assignedOrders           Order[]                 @relation("OrderAssignee")
+  orderEvents              OrderEvent[]            @relation("OrderEventActor")
+  assignedWarrantyCases    WarrantyCase[]          @relation("WarrantyAssignee")
+  warrantyEvents           WarrantyEvent[]         @relation("WarrantyActor")
+  notifications            Notification[]          @relation("NotificationRecipient")
+  processedReferralPayouts ReferralPayoutRequest[] @relation("ReferralPayoutProcessor")
 
   @@index([tenantId, isActive])
 }
@@ -672,7 +677,6 @@ model WarrantyEvent {
   tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   warrantyCase   WarrantyCase @relation(fields: [warrantyCaseId], references: [id], onDelete: Cascade)
   actor          User?        @relation("WarrantyActor", fields: [actorId], references: [id], onDelete: SetNull)
-
 }
 
 model SupportTicket {
@@ -1004,6 +1008,100 @@ model PlatformInvoice {
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, status, dueAt])
+}
+
+// Referral records are intentionally isolated from merchant billing. They only
+// add an auditable wallet layer and never mutate existing customer balances.
+model ReferralSettings {
+  id                    String   @id @default("default")
+  isEnabled             Boolean  @default(true)
+  defaultCommissionRate Decimal  @default(10.0) @db.Decimal(5, 2)
+  minimumPayout         Decimal  @default(100.0) @db.Decimal(18, 2)
+  updatedAt             DateTime @default(now()) @updatedAt
+}
+
+model ReferralProgram {
+  id               String                      @id @default(cuid())
+  tenantId         String                      @unique
+  code             String                      @unique
+  isActive         Boolean                     @default(true)
+  commissionRate   Decimal                     @default(10.0) @db.Decimal(5, 2)
+  availableBalance Decimal                     @default(0.0) @db.Decimal(18, 2)
+  pendingBalance   Decimal                     @default(0.0) @db.Decimal(18, 2)
+  totalEarned      Decimal                     @default(0.0) @db.Decimal(18, 2)
+  totalRedeemed    Decimal                     @default(0.0) @db.Decimal(18, 2)
+  totalPaidOut     Decimal                     @default(0.0) @db.Decimal(18, 2)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @default(now()) @updatedAt
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attributions     ReferralAttribution[]
+  walletEntries    ReferralWalletTransaction[]
+  payoutRequests   ReferralPayoutRequest[]
+
+  @@index([isActive, code])
+}
+
+model ReferralAttribution {
+  id                String                      @id @default(cuid())
+  referrerProgramId String
+  referredTenantId  String                      @unique
+  commissionRate    Decimal                     @db.Decimal(5, 2)
+  status            String                      @default("active")
+  invitedAt         DateTime                    @default(now())
+  activatedAt       DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @default(now()) @updatedAt
+  referrerProgram   ReferralProgram             @relation(fields: [referrerProgramId], references: [id], onDelete: Cascade)
+  referredTenant    Tenant                      @relation("ReferredTenant", fields: [referredTenantId], references: [id], onDelete: Cascade)
+  walletEntries     ReferralWalletTransaction[]
+
+  @@index([referrerProgramId, status, createdAt])
+}
+
+model ReferralWalletTransaction {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  programId       String
+  attributionId   String?
+  payoutRequestId String?
+  sourceInvoiceId String?                @unique
+  type            String
+  amount          Decimal                @db.Decimal(18, 2)
+  balanceAfter    Decimal                @db.Decimal(18, 2)
+  description     String?
+  metadata        Json?
+  createdAt       DateTime               @default(now())
+  tenant          Tenant                 @relation("ReferralWalletTenant", fields: [tenantId], references: [id], onDelete: Cascade)
+  program         ReferralProgram        @relation(fields: [programId], references: [id], onDelete: Cascade)
+  attribution     ReferralAttribution?   @relation(fields: [attributionId], references: [id], onDelete: SetNull)
+  payoutRequest   ReferralPayoutRequest? @relation(fields: [payoutRequestId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([programId, type, createdAt])
+}
+
+model ReferralPayoutRequest {
+  id                String                      @id @default(cuid())
+  tenantId          String
+  programId         String
+  processedById     String?
+  amount            Decimal                     @db.Decimal(18, 2)
+  method            String
+  accountIdentifier String
+  status            String                      @default("pending")
+  merchantNote      String?
+  ownerNote         String?
+  requestedAt       DateTime                    @default(now())
+  processedAt       DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @default(now()) @updatedAt
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  program           ReferralProgram             @relation(fields: [programId], references: [id], onDelete: Cascade)
+  processedBy       User?                       @relation("ReferralPayoutProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  walletEntries     ReferralWalletTransaction[]
+
+  @@index([tenantId, status, requestedAt])
+  @@index([status, requestedAt])
 }
 
 model ApiKey {
