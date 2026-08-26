@@ -6,12 +6,11 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { CreditCard, Loader2, LockKeyhole } from 'lucide-react';
 import { getCurrentUser } from '@/app/actions/auth';
 
+// عندما ينتهي اشتراك التاجر، تظل قناتا التجديد والدعم فقط متاحتين.
+// الإعدادات والتجديدات تخص تشغيل المتجر، لذلك تُقفل مع بقية أدوات التشغيل.
 const ACCOUNT_ROUTES = new Set([
   '/dashboard/billing',
-  '/dashboard/settings',
-  '/dashboard/setup',
   '/dashboard/support',
-  '/dashboard/renewals',
 ]);
 
 export default function DashboardAccessGate({ children }: { children: ReactNode }) {
