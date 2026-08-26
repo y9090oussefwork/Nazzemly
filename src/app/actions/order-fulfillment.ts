@@ -37,6 +37,12 @@ function optionalText(value: unknown, max = 1500) {
   return result;
 }
 
+function renewalSourceId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = (value as Record<string, unknown>).renewedFromId;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
+
 function int(value: unknown, label: string, min: number, max: number) {
   const result = Number(value);
   if (!Number.isInteger(result) || result < min || result > max) throw new Error(`${label} غير صحيح`);
@@ -363,6 +369,7 @@ export async function updateOrderFulfillmentStatus(input: {
         customer: { select: { name: true, tgId: true } },
         service: { select: { name: true } },
         servicePlan: true,
+        events: { where: { type: 'order_created' }, orderBy: { createdAt: 'asc' }, take: 1, select: { metadata: true } },
       },
     });
     if (!before) throw new Error('الطلب غير موجود');
@@ -380,11 +387,21 @@ export async function updateOrderFulfillmentStatus(input: {
     });
     const finalState = template?.final === true || input.status === 'fulfilled';
     const cancelled = input.status === 'cancelled';
+    const previousSubscriptionId = renewalSourceId(before.events[0]?.metadata);
     const updated = await prisma.$transaction(async (tx) => {
       let subscriptionId = before.subscriptionId;
       let warrantyEndsAt = before.warrantyEndsAt;
       if (finalState && !cancelled && !subscriptionId) {
-        const startDate = new Date();
+        const activationDate = new Date();
+        const previousSubscription = previousSubscriptionId
+          ? await tx.subscription.findFirst({
+              where: { id: previousSubscriptionId, tenantId, customerId: before.customerId, serviceId: before.serviceId },
+              select: { id: true, endDate: true, notes: true },
+            })
+          : null;
+        const startDate = previousSubscription && previousSubscription.endDate > activationDate
+          ? previousSubscription.endDate
+          : activationDate;
         const durationDays = before.servicePlan?.durationDays || 30;
         const endDate = new Date(startDate);
         endDate.setUTCDate(endDate.getUTCDate() + durationDays);
@@ -394,6 +411,7 @@ export async function updateOrderFulfillmentStatus(input: {
             customerId: before.customerId,
             serviceId: before.serviceId,
             servicePlanId: before.servicePlanId,
+            renewedFromId: previousSubscription?.id || null,
             orderNo: before.orderNo,
             package: before.servicePlan?.name,
             startDate,
@@ -402,11 +420,21 @@ export async function updateOrderFulfillmentStatus(input: {
             priceBeforeDiscount: before.amount,
             costPrice: before.costPrice,
             status: 'active',
-            notes: 'تم التفعيل من إدارة الطلبات',
+            notes: previousSubscription ? 'تم تفعيل تجديد من إدارة الطلبات' : 'تم التفعيل من إدارة الطلبات',
             createdBy: session.userId,
           },
         });
         subscriptionId = subscription.id;
+        if (previousSubscription) {
+          await tx.subscription.update({
+            where: { id: previousSubscription.id },
+            data: {
+              status: 'expired',
+              renewalStatus: 'renewed',
+              notes: [previousSubscription.notes, `تم التجديد بعد التفعيل في ${activationDate.toLocaleDateString('ar-EG')}`].filter(Boolean).join('\n'),
+            },
+          });
+        }
         if (before.warrantyType === 'subscription_duration') warrantyEndsAt = endDate;
         if (before.warrantyType === 'fixed_days' && before.servicePlan?.warrantyDays) {
           warrantyEndsAt = new Date(startDate);

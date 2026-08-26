@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getActiveTenant } from '@/lib/tenant';
 import { writeAuditLog } from '@/lib/audit';
 import { cleanText, oneOf, optionalText } from '@/lib/validation';
+import { expireDueSubscriptions } from '@/lib/subscription-lifecycle';
 
 const renewalStates = ['not_due', 'ready', 'contacted', 'renewed', 'not_renewing'] as const;
 
@@ -21,6 +22,7 @@ function endOfDay(days = 0) {
 
 export async function getOperationsCenter() {
   const { tenantId, currency } = await getActiveTenant('dashboard');
+  await expireDueSubscriptions(tenantId);
   const today = startOfToday();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const renewalLimit = endOfDay(7);
@@ -115,6 +117,7 @@ export async function getRenewalWorkspace() {
   // Keep the renewal workspace available when a merchant subscription is expired,
   // so the merchant can still review customer renewals and recover the account.
   const { tenantId, currency } = await getActiveTenant('subscriptions', { allowInactiveTenant: true });
+  await expireDueSubscriptions(tenantId);
   const today = startOfToday();
   const limit = endOfDay(30);
   const subscriptions = await prisma.subscription.findMany({

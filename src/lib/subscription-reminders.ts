@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { Bot } from 'grammy';
+import { Bot, InlineKeyboard } from 'grammy';
 import { prisma } from './prisma';
 import { decryptBotToken } from './telegram-manager';
+import { expireDueSubscriptions } from './subscription-lifecycle';
 
 const REMINDER_DAYS = new Set([7, 3, 1, 0]);
 
@@ -36,6 +37,7 @@ function renewalMessage(input: {
 /** Sends one Telegram renewal reminder per subscription per day. Safe to invoke repeatedly. */
 export async function processSubscriptionReminders(limit = 100): Promise<ReminderResult[]> {
   const today = startOfDay(new Date());
+  await expireDueSubscriptions(undefined, today);
   const finalDay = new Date(today);
   finalDay.setDate(finalDay.getDate() + 8);
 
@@ -95,14 +97,18 @@ export async function processSubscriptionReminders(limit = 100): Promise<Reminde
     }
 
     try {
-      await configuredBot.bot.api.sendMessage(subscription.customer.tgId, renewalMessage({
-        customerName: subscription.customer.name,
-        serviceName: subscription.service.name,
-        endDate: subscription.endDate,
-        remainingDays,
-        price: subscription.sellingPrice,
-        currency: subscription.tenant.currency,
-      }));
+      await configuredBot.bot.api.sendMessage(
+        subscription.customer.tgId,
+        renewalMessage({
+          customerName: subscription.customer.name,
+          serviceName: subscription.service.name,
+          endDate: subscription.endDate,
+          remainingDays,
+          price: subscription.sellingPrice,
+          currency: subscription.tenant.currency,
+        }),
+        { reply_markup: new InlineKeyboard().text('تجديد الآن', `renew_${subscription.id}`) },
+      );
       await prisma.botEvent.update({
         where: { id: eventId },
         data: { status: 'processed', processedAt: new Date() },

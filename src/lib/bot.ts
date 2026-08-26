@@ -10,6 +10,7 @@ import { registerCommerceBotFeatures } from './bot-commerce';
 import { captureNextOrderField, createPaidOrderInTransaction } from './order-fulfillment';
 import { showOrdersInBot } from './bot-orders';
 import { BOT_ORDER_FLOW_COPY } from './bot-copy';
+import { expireDueSubscriptions } from './subscription-lifecycle';
 
 declare global {
   var telegramBotCache: Map<string, Bot> | undefined;
@@ -113,8 +114,9 @@ async function editOrReply(ctx: Context, text: string, keyboard?: InlineKeyboard
 }
 
 async function showIssueSubscriptions(ctx: Context, customer: CustomerView, tenantId: string) {
+  await expireDueSubscriptions(tenantId);
   const subscriptions = await prisma.subscription.findMany({
-    where: { tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] } },
+    where: { tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] }, endDate: { gt: new Date() } },
     select: { id: true, endDate: true, service: { select: { name: true } }, servicePlan: { select: { name: true } } },
     orderBy: { endDate: 'asc' }, take: 50,
   });
@@ -126,7 +128,7 @@ async function showIssueSubscriptions(ctx: Context, customer: CustomerView, tena
 
 async function beginWarrantyReport(ctx: Context, customer: CustomerView, tenantId: string, subscriptionId: string) {
   const subscription = await prisma.subscription.findFirst({
-    where: { id: subscriptionId, tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] } },
+    where: { id: subscriptionId, tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] }, endDate: { gt: new Date() } },
     select: { id: true, service: { select: { name: true } } },
   });
   if (!subscription) throw new Error('هذا الاشتراك غير متاح لفتح بلاغ.');
@@ -149,7 +151,7 @@ async function captureWarrantyReport(ctx: Context, customer: CustomerView, tenan
     return true;
   }
   const subscription = await prisma.subscription.findFirst({
-    where: { id: draft.subscriptionId, tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] } },
+    where: { id: draft.subscriptionId, tenantId, customerId: customer.id, status: { in: ['active', 'expiring_soon'] }, endDate: { gt: new Date() } },
     select: { id: true, order: { select: { id: true } }, accountDelivered: { select: { id: true } }, service: { select: { name: true } } },
   });
   if (!subscription) {
@@ -329,6 +331,12 @@ export function getBotInstance(botToken: string, tenantId: string): Bot {
       else if (data.startsWith('srv_')) await showServiceDetails(ctx, tenantId, data.slice(4));
       else if (data.startsWith('plan_')) await showPlanDetails(ctx, tenantId, data.slice(5));
       else if (data.startsWith('buyplan_')) await processPlanPurchase(ctx, customer, tenantId, data.slice(8));
+      else if (data.startsWith('renewplan_')) {
+        const [subscriptionId, planId] = data.slice('renewplan_'.length).split('_');
+        if (!subscriptionId || !planId) throw new Error('بيانات التجديد غير صالحة.');
+        await processPlanPurchase(ctx, customer, tenantId, planId, subscriptionId);
+      }
+      else if (data.startsWith('renew_')) await showRenewalPlans(ctx, customer, tenantId, data.slice('renew_'.length));
       else if (data.startsWith('interest_')) await registerInterest(ctx, customer, tenantId, data.slice(9));
       else if (data.startsWith('buy_')) await processPurchase(ctx, customer, tenantId, data.slice(4));
       else if (data.startsWith('recharge_')) {
@@ -682,6 +690,7 @@ async function processPlanPurchase(
   customer: CustomerView,
   tenantId: string,
   planId: string,
+  renewedFromId?: string,
 ) {
   const result = await prisma.$transaction(
     async (tx) => {
@@ -701,16 +710,17 @@ async function processPlanPurchase(
         tenantId,
         customerId: customer.id,
         amount: plan.price,
-        description: `شراء: ${plan.service.name} - ${plan.name}`,
+        description: `${renewedFromId ? 'تجديد' : 'شراء'}: ${plan.service.name} - ${plan.name}`,
         type: 'purchase',
-        idempotencyKey: `telegram-plan:${ctx.callbackQuery?.id || Date.now()}`,
-        metadata: { serviceId: plan.serviceId, planId: plan.id },
+        idempotencyKey: `${renewedFromId ? 'telegram-renewal' : 'telegram-plan'}:${ctx.callbackQuery?.id || Date.now()}`,
+        metadata: { serviceId: plan.serviceId, planId: plan.id, renewedFromId: renewedFromId || null },
       });
       const fulfillment = await createPaidOrderInTransaction(tx, {
         tenantId,
         customerId: customer.id,
         plan,
         source: 'telegram_bot',
+        renewedFromId,
       });
       await tx.serviceInterest.updateMany({
         where: { tenantId, customerId: customer.id, servicePlanId: plan.id, status: { not: 'closed' } },
@@ -720,20 +730,20 @@ async function processPlanPurchase(
         data: {
           tenantId,
           customerId: customer.id,
-          type: 'purchase',
-          title: 'شراء عبر بوت تيليجرام',
+          type: renewedFromId ? 'renewal' : 'purchase',
+          title: renewedFromId ? 'تجديد عبر بوت تيليجرام' : 'شراء عبر بوت تيليجرام',
           details: `${plan.service.name} - ${plan.name}`,
-          metadata: { orderId: fulfillment.order.id, serviceId: plan.serviceId, planId: plan.id },
+          metadata: { orderId: fulfillment.order.id, serviceId: plan.serviceId, planId: plan.id, renewedFromId: renewedFromId || null },
         },
       });
-      return { plan, fulfillment, walletBalance: debited.walletBalance };
+      return { plan, fulfillment, walletBalance: debited.walletBalance, renewed: Boolean(renewedFromId) };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
 
   const { fulfillment, plan } = result;
   let message =
-    `تم إنشاء طلبك بنجاح.\nرقم الطلب: ${fulfillment.order.orderNo}\nالخدمة: ${plan.service.name}\nالخطة: ${plan.name}\n` +
+    `${result.renewed ? 'تم تسجيل تجديد اشتراكك بنجاح.' : 'تم إنشاء طلبك بنجاح.'}\nرقم الطلب: ${fulfillment.order.orderNo}\nالخدمة: ${plan.service.name}\nالخطة: ${plan.name}\n` +
     `الرصيد المتبقي: ${money(result.walletBalance).toFixed(2)}\n`;
 
   if (fulfillment.mode === 'auto_delivery' && fulfillment.delivery) {
@@ -745,7 +755,9 @@ async function processPlanPurchase(
     const privacyNote = firstField.type === 'password' ? '\nسيتم حفظ الإجابة بصورة مشفرة.' : '';
     message += `\nلتجهيز الاشتراك نحتاج بعض البيانات منك خطوة بخطوة.\nأرسل الآن: ${firstField.label}${privacyNote}`;
   } else {
-    message += `\n${plan.purchaseMessage || 'طلبك قيد التجهيز، وسيتواصل معك فريق الدعم لإتمام التفعيل.'}`;
+    message += result.renewed
+      ? '\nطلب التجديد قيد التفعيل لدى فريق الدعم. سيتغير تاريخ نهاية الاشتراك فور إتمام التفعيل، وسيرسل لك إشعار هنا.'
+      : `\n${plan.purchaseMessage || 'طلبك قيد التجهيز، وسيتواصل معك فريق الدعم لإتمام التفعيل.'}`;
   }
 
   await editOrReply(ctx, message, new InlineKeyboard().text('العودة للقائمة', 'menu'));
@@ -926,30 +938,77 @@ async function handleCancelRequest(
   await editOrReply(ctx, 'تم إلغاء طلب الشحن.', new InlineKeyboard().text('العودة للمحفظة', 'my_wallet'));
 }
 
-async function showSubscriptions(ctx: Context, customer: CustomerView, tenantId: string) {
-  const subscriptions = await prisma.subscription.findMany({
+async function showRenewalPlans(ctx: Context, customer: CustomerView, tenantId: string, subscriptionId: string) {
+  await expireDueSubscriptions(tenantId);
+  const subscription = await prisma.subscription.findFirst({
     where: {
+      id: subscriptionId,
       tenantId,
       customerId: customer.id,
-      status: { in: ['active', 'expiring_soon'] },
+      status: { in: ['active', 'expiring_soon', 'expired'] },
     },
     select: {
       id: true,
       endDate: true,
       status: true,
-      serviceId: true,
+      service: {
+        select: {
+          name: true,
+          plans: {
+            where: { isActive: true, showInBot: true },
+            orderBy: [{ sortOrder: 'asc' }, { durationDays: 'asc' }],
+            select: { id: true, name: true, durationDays: true, price: true, trackInventory: true, stockQuantity: true },
+          },
+        },
+      },
+    },
+  });
+  if (!subscription) throw new Error('الاشتراك غير متاح للتجديد.');
+  const keyboard = new InlineKeyboard();
+  for (const plan of subscription.service.plans) {
+    const available = !plan.trackInventory || plan.stockQuantity > 0;
+    keyboard.text(
+      `${available ? '✅' : '⏳'} ${plan.name} — ${money(plan.price).toFixed(2)}`,
+      available ? `renewplan_${subscription.id}_${plan.id}` : 'browse_services',
+    ).row();
+  }
+  keyboard.text('العودة لاشتراكاتي', 'my_subs').row().text('القائمة الرئيسية', 'menu');
+  const status = subscription.status === 'expired' ? 'منتهي ويحتاج تجديد' : 'نشط ويمكن تجديده الآن';
+  await editOrReply(
+    ctx,
+    `${subscription.service.name}\nانتهى أو ينتهي في: ${subscription.endDate.toLocaleDateString('ar-EG')}\nالحالة: ${status}\n\nاختر مدة التجديد. بعد الدفع يتغير تاريخ الانتهاء تلقائياً حسب المدة المختارة.`,
+    keyboard,
+  );
+}
+
+async function showSubscriptions(ctx: Context, customer: CustomerView, tenantId: string) {
+  await expireDueSubscriptions(tenantId);
+  const renewalWindow = new Date();
+  renewalWindow.setUTCDate(renewalWindow.getUTCDate() - 60);
+  const subscriptions = await prisma.subscription.findMany({
+    where: {
+      tenantId,
+      customerId: customer.id,
+      status: { in: ['active', 'expiring_soon', 'expired'] },
+      endDate: { gte: renewalWindow },
+    },
+    select: {
+      id: true,
+      endDate: true,
+      status: true,
       service: { select: { name: true } },
+      servicePlan: { select: { name: true } },
     },
     orderBy: { endDate: 'asc' },
     take: 100,
   });
   const text = subscriptions.length
     ? subscriptions
-        .map((item) => `${item.service.name}\nينتهي: ${item.endDate.toLocaleDateString('ar-EG')}\nالحالة: ${item.status}`)
+        .map((item) => `${item.service.name}${item.servicePlan?.name ? ` — ${item.servicePlan.name}` : ''}\nينتهي: ${item.endDate.toLocaleDateString('ar-EG')}\nالحالة: ${item.status === 'expired' ? 'منتهي ويحتاج تجديد' : 'نشط'}`)
         .join('\n\n')
     : 'ليس لديك اشتراكات نشطة حالياً.';
   const keyboard = new InlineKeyboard();
-  subscriptions.forEach((item) => keyboard.text(`تجديد ${item.service.name}`, `buy_${item.serviceId}`).row());
+  subscriptions.forEach((item) => keyboard.text(`${item.status === 'expired' ? 'إعادة تفعيل' : 'تجديد'} ${item.service.name}`, `renew_${item.id}`).row());
   keyboard.text('العودة للقائمة', 'menu');
   await editOrReply(ctx, text, keyboard);
 }

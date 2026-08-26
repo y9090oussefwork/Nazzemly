@@ -8,6 +8,7 @@ import { encryptSecret } from '@/lib/security';
 import { money, requirePositiveMoney } from '@/lib/money';
 import { syncDueRecurringExpenses } from '@/lib/recurring-expenses';
 import { assertMerchantOnboardingComplete } from '@/lib/merchant-onboarding';
+import { expireDueSubscriptions } from '@/lib/subscription-lifecycle';
 import {
   cleanText,
   dateValue,
@@ -69,6 +70,7 @@ export async function getDashboardStats() {
   try {
     const { tenantId } = await getActiveTenant('dashboard');
     await syncDueRecurringExpenses(tenantId);
+    await expireDueSubscriptions(tenantId);
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const reminderBoundary = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -228,6 +230,7 @@ export async function getCustomers(options?: { search?: string; page?: number; p
 export async function getCustomerProfile(customerIdInput: string) {
   try {
     const { tenantId } = await getActiveTenant('customers');
+    await expireDueSubscriptions(tenantId);
     const customerId = cleanText(customerIdInput, 'معرّف العميل', 3, 64);
     const customer = await prisma.customer.findFirst({
       where: { id: customerId, tenantId, deletedAt: null },
@@ -597,6 +600,7 @@ export async function deleteService(id: string) {
 export async function getSubscriptions() {
   try {
     const { tenantId } = await getActiveTenant('subscriptions');
+    await expireDueSubscriptions(tenantId);
     const subscriptions = await prisma.subscription.findMany({
       where: { tenantId },
       include: {
@@ -604,7 +608,7 @@ export async function getSubscriptions() {
         service: { select: { id: true, name: true, defaultDuration: true } },
         servicePlan: { select: { id: true, name: true, durationDays: true } },
       },
-      orderBy: { endDate: 'asc' },
+      orderBy: { endDate: 'desc' },
       take: 500,
     });
     return { success: true, subscriptions: subscriptions.map((item) => subscriptionDto(item)) };
@@ -761,7 +765,9 @@ export async function renewSubscription(
         });
     if (data.servicePlanId && !plan) throw new Error('مدة الاشتراك غير متاحة');
 
-    const startDate = dateValue(data.startDate, 'تاريخ البداية');
+    const requestedStartDate = dateValue(data.startDate, 'تاريخ البداية');
+    const earliestStartDate = original.endDate > new Date() ? original.endDate : new Date();
+    const startDate = requestedStartDate > earliestStartDate ? requestedStartDate : earliestStartDate;
     const duration = plan?.durationDays || original.service.defaultDuration;
     const endDate = new Date(startDate.getTime() + duration * 24 * 60 * 60 * 1000);
     const pricing = subscriptionPricing(plan?.price || original.service.defaultSellingPrice, data.discountType, data.discountValue);
@@ -777,7 +783,11 @@ export async function renewSubscription(
       }
       await tx.subscription.update({
         where: { id: original.id },
-        data: { status: 'expired', notes: 'تم التجديد في ' + new Date().toISOString() },
+        data: {
+          status: 'expired',
+          renewalStatus: 'renewed',
+          notes: [original.notes, `تم التجديد في ${new Date().toLocaleDateString('ar-EG')}`].filter(Boolean).join('\n'),
+        },
       });
       return tx.subscription.create({
         data: {

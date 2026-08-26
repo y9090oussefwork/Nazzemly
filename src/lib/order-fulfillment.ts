@@ -195,9 +195,17 @@ export async function createPaidOrderInTransaction(
     customerId: string;
     plan: FulfillmentPlan;
     source: 'telegram_bot' | 'dashboard' | 'customer_portal';
+    renewedFromId?: string;
   },
 ) {
   const { plan } = input;
+  const previousSubscription = input.renewedFromId
+    ? await tx.subscription.findFirst({
+        where: { id: input.renewedFromId, tenantId: input.tenantId, customerId: input.customerId, serviceId: plan.serviceId },
+        select: { id: true, endDate: true, notes: true },
+      })
+    : null;
+  if (input.renewedFromId && !previousSubscription) throw new Error('الاشتراك المراد تجديده غير متاح.');
   const mode = FULFILLMENT_MODES.includes(plan.fulfillmentMode as FulfillmentMode)
     ? (plan.fulfillmentMode as FulfillmentMode)
     : 'manual_contact';
@@ -229,6 +237,7 @@ export async function createPaidOrderInTransaction(
           type: 'order_created',
           toStatus: initialStatus,
           isCustomerVisible: true,
+          metadata: previousSubscription ? { renewedFromId: previousSubscription.id } : undefined,
         },
       },
     },
@@ -260,7 +269,8 @@ export async function createPaidOrderInTransaction(
   }
 
   const delivery = await claimDeliveryUnit(tx, plan);
-  const startDate = new Date();
+  const activationDate = new Date();
+  const startDate = previousSubscription && previousSubscription.endDate > activationDate ? previousSubscription.endDate : activationDate;
   const endDate = addDays(startDate, plan.durationDays);
   const subscription = await tx.subscription.create({
     data: {
@@ -268,6 +278,7 @@ export async function createPaidOrderInTransaction(
       customerId: input.customerId,
       serviceId: plan.serviceId,
       servicePlanId: plan.id,
+      renewedFromId: previousSubscription?.id || null,
       orderNo: order.orderNo,
       package: plan.name,
       startDate,
@@ -276,11 +287,21 @@ export async function createPaidOrderInTransaction(
       priceBeforeDiscount: plan.price,
       costPrice: plan.costPrice,
       status: 'active',
-      notes: 'تسليم تلقائي عبر البوت',
+      notes: previousSubscription ? 'تم التجديد والتسليم تلقائياً عبر البوت' : 'تسليم تلقائي عبر البوت',
       createdBy: input.source,
     },
   });
   const warrantyEnd = warrantyEndsAt(plan, startDate, endDate);
+  if (previousSubscription) {
+    await tx.subscription.update({
+      where: { id: previousSubscription.id },
+      data: {
+        status: 'expired',
+        renewalStatus: 'renewed',
+        notes: [previousSubscription.notes, `تم التجديد عبر البوت في ${activationDate.toLocaleDateString('ar-EG')}`].filter(Boolean).join('\n'),
+      },
+    });
+  }
   await tx.deliveryAllocation.create({
     data: {
       tenantId: input.tenantId,
@@ -375,4 +396,3 @@ export async function captureNextOrderField(
 export function decryptOrderInputValue(valueEncrypted: string) {
   return decryptSecret(valueEncrypted);
 }
-
