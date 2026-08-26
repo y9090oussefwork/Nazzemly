@@ -146,7 +146,13 @@ export default function SuperAdminPage() {
     router.push('/login');
   };
 
-  const formatExpiry = (expiryDate: string | null) => {
+  const toDateInputValue = (expiryDate: string | Date | null | undefined) => {
+    if (!expiryDate) return '';
+    const date = expiryDate instanceof Date ? expiryDate : new Date(expiryDate);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+  };
+
+  const formatExpiry = (expiryDate: string | Date | null) => {
     if (!expiryDate) return <span className="text-zinc-500 font-bold">لا يوجد تاريخ</span>;
     const end = new Date(expiryDate);
     const today = new Date();
@@ -239,7 +245,7 @@ export default function SuperAdminPage() {
           </div>
           <button
             onClick={handleLogout}
-            className="p-2 text-zinc-500 hover:text-red-400 rounded-xl hover:bg-red-950/20 cursor-pointer transition-colors duration-150"
+            className="p-2 text-zinc-300 hover:text-red-300 rounded-xl hover:bg-red-950/20 cursor-pointer transition-colors duration-150"
             title="تسجيل الخروج"
           >
             <LogOut className="w-4 h-4" />
@@ -380,7 +386,7 @@ export default function SuperAdminPage() {
                               setEditForm({
                                 plan: m.saasPlan,
                                 status: m.saasStatus,
-                                expiry: m.saasExpiry ? m.saasExpiry.substring(0, 10) : '',
+                                expiry: toDateInputValue(m.saasExpiry),
                                 balance: m.saasBalance,
                               });
                               setModalType('edit');
