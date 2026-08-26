@@ -161,17 +161,20 @@ export async function getDashboardStats() {
   }
 }
 
-export async function getCustomers(options?: { search?: string; page?: number; pageSize?: number }) {
+export async function getCustomers(options?: { search?: string; page?: number; pageSize?: number; id?: string }) {
   try {
     const { tenantId } = await getActiveTenant('customers');
     const page = Math.max(1, Number(options?.page) || 1);
     const pageSize = Math.min(100, Math.max(10, Number(options?.pageSize) || 50));
     const search = options?.search?.trim();
+    const customerId = options?.id?.trim();
 
     const where = {
       tenantId,
       deletedAt: null,
-      ...(search
+      ...(customerId
+        ? { id: customerId }
+        : search
         ? {
             OR: [
               { name: { contains: search, mode: 'insensitive' as const } },

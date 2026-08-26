@@ -2,6 +2,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
 import {
   CheckCircle2,
   ChevronDown,
@@ -124,7 +125,7 @@ function OrderCard({ order, currency, refresh, notify }: {
       <div className="grid gap-5 p-5 xl:grid-cols-[1.3fr_1fr_auto] xl:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-black">{order.service.name}</h2>
+            <Link prefetch={false} href={`/dashboard/services?serviceId=${order.service.id}`} className="text-lg font-black transition-colors hover:text-emerald-300 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">{order.service.name}</Link>
             {order.servicePlan?.name ? <span className="text-sm text-zinc-500">{order.servicePlan.name}</span> : null}
             <span className={`rounded-lg px-2.5 py-1 text-xs font-black ${statusTone(order.fulfillmentStatus)}`}>
               {statusLabels[order.fulfillmentStatus] || order.fulfillmentStatus}
@@ -138,7 +139,7 @@ function OrderCard({ order, currency, refresh, notify }: {
         </div>
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-zinc-950 text-zinc-400"><UserRound className="h-5 w-5" /></span>
-          <div><b className="block">{order.customer.name}</b><span className="text-sm text-zinc-500">{order.customer.phone}</span></div>
+          <div><Link prefetch={false} href={`/dashboard/customers?customerId=${order.customer.id}`} className="block font-bold transition-colors hover:text-emerald-300 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">{order.customer.name}</Link><span className="text-sm text-zinc-500">{order.customer.phone}</span></div>
         </div>
         <a
           href={`https://wa.me/${customerWhatsApp}?text=${encodeURIComponent(`مرحبًا ${order.customer.name}، بخصوص طلبك ${order.orderNo} لخدمة ${order.service.name}`)}`}

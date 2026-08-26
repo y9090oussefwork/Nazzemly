@@ -2,6 +2,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState, useTransition } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   BellRing,
   Boxes,
@@ -282,9 +283,11 @@ function PlanForm({
   );
 }
 
-function ServiceCard({ service, categories, refresh, setNotice, currency }: { service: Service; categories: Catalog['categories']; refresh: () => Promise<void>; setNotice: (value: string) => void; currency: string }) {
+function ServiceCard({ service, categories, refresh, setNotice, currency, isFocused }: { service: Service; categories: Catalog['categories']; refresh: () => Promise<void>; setNotice: (value: string) => void; currency: string; isFocused: boolean }) {
+  const [showServiceEditor, setShowServiceEditor] = useState(isFocused);
+  useEffect(() => { if (isFocused) setShowServiceEditor(true); }, [isFocused]);
   return (
-    <article className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60">
+    <article id={`service-${service.id}`} className={`scroll-mt-6 overflow-hidden rounded-2xl border bg-zinc-900/60 ${isFocused ? 'border-emerald-500/60 shadow-lg shadow-emerald-950/20' : 'border-zinc-800'}`}>
       <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-black">{service.name}</h3><span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${service.isActive ? 'bg-emerald-500/10 text-emerald-300' : 'bg-zinc-800 text-zinc-500'}`}>{service.isActive ? 'نشطة' : 'متوقفة'}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${service.showInBot ? 'bg-sky-500/10 text-sky-300' : 'bg-zinc-800 text-zinc-500'}`}>{service.showInBot ? 'ظاهرة في البوت' : 'مخفية من البوت'}</span></div>
@@ -311,13 +314,15 @@ function ServiceCard({ service, categories, refresh, setNotice, currency }: { se
         </div>
         {!service.plans.length ? <div className="rounded-xl border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-500"><PackageX className="mx-auto mb-2 h-6 w-6" />لا توجد مدد بيع بعد.</div> : null}
         <details className="mt-4 rounded-xl border border-dashed border-emerald-500/30 bg-emerald-500/5 p-4"><summary className="cursor-pointer list-none font-black text-emerald-300">+ إضافة مدة وسعر جديدين</summary><div className="mt-4"><PlanForm serviceId={service.id} onSaved={refresh} setNotice={setNotice} /></div></details>
-        <details className="mt-3 rounded-xl border border-zinc-800 p-4"><summary className="cursor-pointer list-none text-sm font-bold text-zinc-400">تعديل بيانات الخدمة الأساسية</summary><div className="mt-4"><ServiceForm categories={categories} initial={service} onSaved={refresh} setNotice={setNotice} /></div></details>
+        <details open={showServiceEditor} onToggle={(event) => setShowServiceEditor(event.currentTarget.open)} className="mt-3 rounded-xl border border-zinc-800 p-4"><summary className="cursor-pointer list-none text-sm font-bold text-zinc-400">تعديل بيانات الخدمة الأساسية</summary><div className="mt-4"><ServiceForm categories={categories} initial={service} onSaved={refresh} setNotice={setNotice} /></div></details>
       </div>
     </article>
   );
 }
 
 export default function ServicesPage() {
+  const searchParams = useSearchParams();
+  const focusedServiceId = searchParams.get('serviceId');
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [interests, setInterests] = useState<Interest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -339,6 +344,12 @@ export default function ServicesPage() {
 
   const allServices = catalog ? [...catalog.categories.flatMap((category) => category.services), ...catalog.uncategorizedServices] : [];
   const stockAlerts = allServices.flatMap((service) => service.plans).filter((plan) => plan.trackInventory && plan.stockQuantity === 0).length;
+
+  useEffect(() => {
+    if (!focusedServiceId || !catalog) return;
+    const timer = window.setTimeout(() => document.getElementById(`service-${focusedServiceId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+    return () => window.clearTimeout(timer);
+  }, [catalog, focusedServiceId]);
 
   const changeInterest = (id: string, status: 'contacted' | 'converted' | 'closed') => {
     startTransition(async () => {
@@ -372,11 +383,11 @@ export default function ServicesPage() {
       {catalog.categories.map((category) => (
         <section key={category.id} className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 text-xl font-black"><Layers3 className="h-5 w-5 text-emerald-400" />{category.name}</h2><p className="mt-1 text-sm text-zinc-500">{category.description || 'تصنيف خدمات'}</p></div><button disabled={isPending} onClick={() => startTransition(async () => { const result = await setCatalogItemState({ type: 'category', id: category.id, showInBot: !category.showInBot }); setNotice(result.success ? 'تم تحديث ظهور التصنيف في البوت.' : result.error || 'تعذر التحديث.'); if (result.success) await refresh(); })} className="rounded-xl border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 transition-colors duration-150 hover:bg-zinc-900">{category.showInBot ? 'إخفاء التصنيف من البوت' : 'إظهار التصنيف في البوت'}</button></div>
-          <div className="space-y-4">{category.services.map((service) => <ServiceCard key={service.id} service={service} categories={catalog.categories} refresh={refresh} setNotice={setNotice} currency={catalog.currency} />)}{!category.services.length ? <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">لا توجد خدمات في هذا التصنيف بعد.</div> : null}</div>
+          <div className="space-y-4">{category.services.map((service) => <ServiceCard key={service.id} service={service} categories={catalog.categories} refresh={refresh} setNotice={setNotice} currency={catalog.currency} isFocused={service.id === focusedServiceId} />)}{!category.services.length ? <div className="rounded-2xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">لا توجد خدمات في هذا التصنيف بعد.</div> : null}</div>
         </section>
       ))}
 
-      {catalog.uncategorizedServices.length ? <section className="space-y-4"><h2 className="text-xl font-black">خدمات بدون تصنيف</h2>{catalog.uncategorizedServices.map((service) => <ServiceCard key={service.id} service={service} categories={catalog.categories} refresh={refresh} setNotice={setNotice} currency={catalog.currency} />)}</section> : null}
+      {catalog.uncategorizedServices.length ? <section className="space-y-4"><h2 className="text-xl font-black">خدمات بدون تصنيف</h2>{catalog.uncategorizedServices.map((service) => <ServiceCard key={service.id} service={service} categories={catalog.categories} refresh={refresh} setNotice={setNotice} currency={catalog.currency} isFocused={service.id === focusedServiceId} />)}</section> : null}
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 text-xl font-black"><BellRing className="h-5 w-5 text-amber-300" />قائمة العملاء المهتمين</h2><p className="mt-1 text-sm text-zinc-500">العملاء الذين طلبوا إشعارهم عند عودة خدمة نفد مخزونها.</p></div><HelpTip text="عند تحويل مخزون خطة من صفر إلى كمية متاحة، يحاول النظام إشعار كل عميل مرتبط بتيليجرام تلقائياً." /></div>
