@@ -1,11 +1,11 @@
 'use client';
 
 import { ChangeEvent, useState, useTransition } from 'react';
-import { CheckCircle2, Download, FileArchive, FileCheck2, FileUp, ShieldCheck, Upload, X } from 'lucide-react';
+import { CheckCircle2, Download, FileArchive, FileCheck2, FileUp, KeyRound, ShieldCheck, Upload, X } from 'lucide-react';
 import { exportMerchantBackup, importMerchantBackup } from '@/app/actions/data-transfer';
 import HelpTip from '@/app/dashboard/help-tip';
 
-type BackupPreview = { createdAt: string | null; sections: Array<{ id: string; label: string; rows: number }> };
+type BackupPreview = { createdAt: string | null; version: number; requiresPassword: boolean; sections: Array<{ id: string; label: string; rows: number }> };
 type ImportResult = { dataSet: string; created: number; updated: number; skipped: number; total: number; success: boolean; error?: string };
 
 const legacySectionLabels: Record<string, string> = {
@@ -18,7 +18,7 @@ const legacySectionLabels: Record<string, string> = {
 };
 
 const restoreSectionLabels: Record<string, string> = {
-  merchant_profile: 'بيانات المتجر', contacts: 'وسائل التواصل', payment_methods: 'طرق الدفع', bot_configuration: 'إعدادات البوت', categories: 'تصنيفات الخدمات', services: 'الخدمات والباقات', customers: 'العملاء', subscriptions: 'الاشتراكات', interests: 'طلبات الاهتمام بالخدمات', orders: 'الطلبات والتنفيذ', account_pool: 'المخزون والتسليم', wallet: 'محافظ العملاء وطلبات الشحن', customer_operations: 'المهام والصفقات وسجل العملاء', messages: 'القوالب والإشعارات', warranties: 'الضمانات والمشكلات', financials: 'البيانات المالية', support: 'تذاكر الدعم', referral_wallet: 'محفظة الإحالة وطلبات السحب',
+  merchant_profile: 'بيانات المتجر', contacts: 'وسائل التواصل', payment_methods: 'طرق الدفع', bot_configuration: 'إعدادات البوت', categories: 'تصنيفات الخدمات', services: 'الخدمات والباقات', customers: 'العملاء', subscriptions: 'الاشتراكات', interests: 'طلبات الاهتمام بالخدمات', orders: 'الطلبات والتنفيذ', account_pool: 'المخزون والتسليم', wallet: 'محافظ العملاء وطلبات الشحن', customer_operations: 'المهام والصفقات وسجل العملاء', messages: 'القوالب والإشعارات', warranties: 'الضمانات والمشكلات', financials: 'البيانات المالية', support: 'تذاكر الدعم', referral_wallet: 'محفظة الإحالة وطلبات السحب', sms_integration: 'ربط الرسائل النصية', bot_history: 'سجل البوت', sms_history: 'سجل الرسائل النصية', audit_log: 'سجل العمليات',
 };
 
 function previewBackup(content: string): BackupPreview {
@@ -26,7 +26,7 @@ function previewBackup(content: string): BackupPreview {
   if (archive.format !== 'nazzemly-data-backup' || !archive.version) {
     throw new Error('اختر ملف نسخة احتياطية تم تنزيله من Nazzemly.');
   }
-  const sections = archive.version === 2 && archive.sections && typeof archive.sections === 'object'
+  const sections = (archive.version === 2 || archive.version === 3) && archive.sections && typeof archive.sections === 'object'
     ? Object.entries(restoreSectionLabels).flatMap(([id, label]) => {
         const items = archive.sections?.[id];
         return Array.isArray(items) ? [{ id, label, rows: items.length }] : [];
@@ -40,7 +40,12 @@ function previewBackup(content: string): BackupPreview {
         })
       : [];
   if (!sections.length) throw new Error('لا يحتوي الملف على أقسام بيانات قابلة للاستيراد.');
-  return { createdAt: typeof archive.createdAt === 'string' ? archive.createdAt : null, sections };
+  return {
+    createdAt: typeof archive.createdAt === 'string' ? archive.createdAt : null,
+    version: Number(archive.version),
+    requiresPassword: archive.version === 3,
+    sections,
+  };
 }
 
 function formatDate(value: string | null) {
@@ -55,9 +60,20 @@ export default function DataTransferPage() {
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [notice, setNotice] = useState('');
   const [lastResult, setLastResult] = useState<ImportResult[] | null>(null);
+  const [exportPassword, setExportPassword] = useState('');
+  const [exportPasswordConfirm, setExportPasswordConfirm] = useState('');
+  const [importPassword, setImportPassword] = useState('');
 
   const download = () => startTransition(async () => {
-    const result = await exportMerchantBackup();
+    if (exportPassword.length < 12) {
+      setNotice('اختر كلمة مرور للنسخة من 12 حرفًا على الأقل.');
+      return;
+    }
+    if (exportPassword !== exportPasswordConfirm) {
+      setNotice('تأكيد كلمة المرور لا يطابق كلمة مرور النسخة.');
+      return;
+    }
+    const result = await exportMerchantBackup({ password: exportPassword });
     if (!result.success || !result.content || !result.fileName) {
       setNotice(result.error || 'تعذر تجهيز النسخة الاحتياطية.');
       return;
@@ -70,13 +86,16 @@ export default function DataTransferPage() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    setNotice('تم تنزيل ملف النسخة الاحتياطية الشامل. احتفظ به في مكان آمن.');
+    setExportPassword('');
+    setExportPasswordConfirm('');
+    setNotice('تم تنزيل ملف النسخة الاحتياطية الشامل والمشفّر. احتفظ بالملف وكلمة مروره في مكانين آمنين.');
   });
 
   const chooseFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0] || null;
     setNotice('');
     setLastResult(null);
+    setImportPassword('');
     if (!selectedFile) { setFile(null); setPreview(null); return; }
     try {
       const content = await selectedFile.text();
@@ -92,12 +111,16 @@ export default function DataTransferPage() {
 
   const importFile = () => startTransition(async () => {
     if (!file) return;
-    const result = await importMerchantBackup({ content: await file.text() });
+    if (preview?.requiresPassword && !importPassword) {
+      setNotice('أدخل كلمة مرور النسخة المحمية أولًا.');
+      return;
+    }
+    const result = await importMerchantBackup({ content: await file.text(), password: importPassword || undefined });
     setLastResult(result.results as ImportResult[]);
     setNotice(result.success
       ? `اكتمل الاستيراد بأمان: ${result.created} جديد، ${result.updated} محدث، ${result.skipped} تم تجاوزه.`
       : result.error || 'تعذر إكمال الاستيراد. راجع نتيجة كل قسم بالأسفل.');
-    if (result.success) { setFile(null); setPreview(null); }
+    if (result.success) { setFile(null); setPreview(null); setImportPassword(''); }
   });
 
   return <section dir="rtl" className="mx-auto max-w-5xl space-y-6 pb-12">
@@ -112,9 +135,11 @@ export default function DataTransferPage() {
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
         <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-500/10 text-emerald-300"><FileArchive className="h-5 w-5" /></span>
         <h2 className="mt-5 text-xl font-black text-white">تصدير نسخة الاسترداد</h2>
-        <p className="mt-2 min-h-12 text-sm leading-6 text-zinc-300">ملف واحد يشمل هوية المتجر، العملاء، الخدمات، الطلبات، المخزون، المحافظ، السجل المالي والدعم.</p>
-        <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-xs leading-6 text-zinc-300"><ShieldCheck className="ml-1 inline h-4 w-4 text-emerald-300" />لا يشمل كلمات المرور أو رمز البوت السري. بعد الاسترداد أدخل رمز البوت من الإعدادات لتفعيله مجددًا.</div>
-        <button type="button" disabled={isPending} onClick={download} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:opacity-50"><Download className="h-4 w-4" />{isPending ? 'جارٍ تجهيز الملف…' : 'تنزيل نسخة الاسترداد'}</button>
+        <p className="mt-2 min-h-12 text-sm leading-6 text-zinc-300">ملف واحد يشمل تشغيل متجرك: العملاء والخدمات والطلبات والمخزون والمحافظ والسجل المالي والدعم وسجل العمليات.</p>
+        <div className="mt-5 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3 text-xs leading-6 text-emerald-100"><ShieldCheck className="ml-1 inline h-4 w-4 text-emerald-300" />تُضم بيانات البوت وحسابات المخزون وبيانات الربط الحساسة داخل الملف مشفّرة بكلمة المرور التي تختارها الآن.</div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-zinc-200">كلمة مرور النسخة<input value={exportPassword} onChange={(event) => setExportPassword(event.target.value)} autoComplete="new-password" type="password" minLength={12} placeholder="12 حرفًا على الأقل" className="mt-2 h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400" /></label><label className="block text-xs font-bold text-zinc-200">تأكيد كلمة المرور<input value={exportPasswordConfirm} onChange={(event) => setExportPasswordConfirm(event.target.value)} autoComplete="new-password" type="password" placeholder="أعد كتابة كلمة المرور" className="mt-2 h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400" /></label></div>
+        <p className="mt-3 text-xs leading-6 text-amber-100"><KeyRound className="ml-1 inline h-4 w-4 text-amber-300" />لا يمكن استرداد هذه الكلمة من المنصة؛ احتفظ بها خارج الجهاز نفسه.</p>
+        <button type="button" disabled={isPending} onClick={download} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-emerald-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:opacity-50"><Download className="h-4 w-4" />{isPending ? 'جارٍ تجهيز الملف…' : 'تنزيل نسخة الاسترداد'}</button>
       </div>
 
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
@@ -125,7 +150,7 @@ export default function DataTransferPage() {
       </div>
     </section>
 
-    {preview ? <section className="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="flex items-center gap-2 text-lg font-black text-white"><FileCheck2 className="h-5 w-5 text-sky-300" />معاينة قبل الاستيراد</h2><p className="mt-1 text-sm text-sky-100/75">تاريخ إنشاء الملف: {formatDate(preview.createdAt)}</p></div><button type="button" disabled={isPending} onClick={importFile} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:opacity-50"><Upload className="h-4 w-4" />{isPending ? 'جارٍ الاستيراد…' : 'بدء الاسترداد الآمن'}</button></div><div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{preview.sections.map((section) => <div key={section.id} className="rounded-xl border border-sky-500/15 bg-zinc-950/50 px-3 py-3"><p className="text-sm font-bold text-zinc-100">{section.label}</p><p className="mt-1 text-xs text-zinc-300">{section.rows.toLocaleString('ar-EG')} سجل</p></div>)}</div><p className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs leading-6 text-amber-100">أفضل استخدام للاسترداد هو متجر جديد أو فارغ. لا يحذف النظام أي بيانات قائمة، ويتجاوز السجلات المطابقة بدل تكرارها.<HelpTip text="لأمان الحسابات لا يعاد استيراد كلمات المرور أو رمز بوت تيليجرام السري؛ تُدخل هذه المعلومات بعد الاسترداد من الإعدادات." /></p></section> : null}
+    {preview ? <section className="rounded-2xl border border-sky-500/30 bg-sky-500/5 p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="flex items-center gap-2 text-lg font-black text-white"><FileCheck2 className="h-5 w-5 text-sky-300" />معاينة قبل الاستيراد</h2><p className="mt-1 text-sm text-sky-100/75">تاريخ إنشاء الملف: {formatDate(preview.createdAt)}</p></div><button type="button" disabled={isPending || (preview.requiresPassword && !importPassword)} onClick={importFile} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-emerald-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:opacity-50"><Upload className="h-4 w-4" />{isPending ? 'جارٍ الاستيراد…' : 'بدء الاسترداد الآمن'}</button></div>{preview.requiresPassword ? <label className="mt-5 block max-w-lg text-sm font-bold text-sky-100">كلمة مرور النسخة المحمية<input value={importPassword} onChange={(event) => setImportPassword(event.target.value)} autoComplete="current-password" type="password" placeholder="أدخل كلمة المرور التي استخدمتها عند التصدير" className="mt-2 h-11 w-full rounded-xl border border-sky-500/35 bg-zinc-950 px-3 text-sm text-white outline-none transition focus:border-sky-300" /></label> : null}<div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{preview.sections.map((section) => <div key={section.id} className="rounded-xl border border-sky-500/15 bg-zinc-950/50 px-3 py-3"><p className="text-sm font-bold text-sky-50">{section.label}</p><p className="mt-1 text-xs text-sky-100">{section.rows.toLocaleString('ar-EG')} سجل</p></div>)}</div><p className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs leading-6 text-amber-100">أفضل استخدام للاسترداد هو متجر جديد أو فارغ. لا يحذف النظام أي بيانات قائمة، ويتجاوز السجلات المطابقة بدل تكرارها.<HelpTip text="النسخة الجديدة تستعيد بيانات البوت والحسابات الحساسة بعد إدخال كلمة المرور الصحيحة، ثم يحتاج البوت إلى اختبار اتصال واحد فقط لتشغيله." /></p></section> : null}
 
     {lastResult ? <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"><h2 className="text-lg font-black text-white">نتيجة الاستيراد</h2><div className="mt-4 divide-y divide-zinc-800">{lastResult.map((result) => <div key={result.dataSet} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"><div><p className="font-bold text-zinc-100">{restoreSectionLabels[result.dataSet] || legacySectionLabels[result.dataSet] || result.dataSet}</p><p className={`mt-1 text-xs ${result.success ? 'text-zinc-400' : 'text-rose-200'}`}>{result.success ? `${result.created} جديد · ${result.updated} محدث · ${result.skipped} تم تجاوزه` : result.error || 'تعذر الاستيراد'}</p></div>{result.success ? <CheckCircle2 className="h-5 w-5 text-emerald-300" /> : <X className="h-5 w-5 text-rose-300" />}</div>)}</div></section> : null}
   </section>;

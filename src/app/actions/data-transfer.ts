@@ -1,9 +1,11 @@
 'use server';
 
+import crypto from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { getActiveTenant } from '@/lib/tenant';
 import { writeAuditLog } from '@/lib/audit';
+import { decryptSecret, encryptSecret } from '@/lib/security';
 
 export type DataSet = 'customers' | 'services' | 'subscriptions' | 'expenses' | 'recurring_expenses' | 'advertising';
 
@@ -19,11 +21,31 @@ type MerchantBackup = {
 
 type MerchantRestoreBackup = {
   format: typeof backupFormat;
-  version: 2;
+  version: 2 | 3;
   createdAt: string;
   productVersion: string;
   scope: 'merchant_operational_data';
   sections: Record<string, unknown[]>;
+  protected?: PortableSecretEnvelope;
+};
+
+type PortableSecretEnvelope = {
+  version: 1;
+  algorithm: 'aes-256-gcm';
+  kdf: 'pbkdf2-sha256';
+  iterations: number;
+  salt: string;
+  iv: string;
+  tag: string;
+  ciphertext: string;
+};
+
+type PortableSecretPayload = {
+  version: 1;
+  botToken?: string;
+  smsIntegration?: { secret: string };
+  accounts: Array<{ id: string; credentials?: string | null; credentialData?: string | null }>;
+  orderInputs: Array<{ id: string; value: string }>;
 };
 
 const restoreSectionLabels: Record<string, string> = {
@@ -45,7 +67,61 @@ const restoreSectionLabels: Record<string, string> = {
   financials: 'المصروفات والإعلانات',
   support: 'تذاكر الدعم',
   referral_wallet: 'محفظة الإحالة وطلبات السحب',
+  sms_integration: 'ربط الرسائل النصية',
+  bot_history: 'سجل البوت',
+  sms_history: 'سجل الرسائل النصية',
+  audit_log: 'سجل العمليات',
 };
+
+const backupPasswordMinimumLength = 12;
+const backupKdfIterations = 310_000;
+
+function requireBackupPassword(password: string | undefined) {
+  if (!password || password.length < backupPasswordMinimumLength) {
+    throw new Error(`اختر كلمة مرور للنسخة من ${backupPasswordMinimumLength} أحرف على الأقل`);
+  }
+  if (password.length > 256) throw new Error('كلمة مرور النسخة طويلة جدًا');
+  return password;
+}
+
+function encryptPortableSecrets(payload: PortableSecretPayload, password: string): PortableSecretEnvelope {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.pbkdf2Sync(password, salt, backupKdfIterations, 32, 'sha256');
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()]);
+  return {
+    version: 1,
+    algorithm: 'aes-256-gcm',
+    kdf: 'pbkdf2-sha256',
+    iterations: backupKdfIterations,
+    salt: salt.toString('base64url'),
+    iv: iv.toString('base64url'),
+    tag: cipher.getAuthTag().toString('base64url'),
+    ciphertext: ciphertext.toString('base64url'),
+  };
+}
+
+function decryptPortableSecrets(envelope: PortableSecretEnvelope, password: string): PortableSecretPayload {
+  if (envelope.version !== 1 || envelope.algorithm !== 'aes-256-gcm' || envelope.kdf !== 'pbkdf2-sha256' || !Number.isInteger(envelope.iterations) || envelope.iterations < 100_000 || envelope.iterations > 1_000_000) {
+    throw new Error('حماية ملف النسخة الاحتياطية غير مدعومة');
+  }
+  try {
+    const key = crypto.pbkdf2Sync(password, Buffer.from(envelope.salt, 'base64url'), envelope.iterations, 32, 'sha256');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64url'));
+    decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
+    const parsed: unknown = JSON.parse(Buffer.concat([
+      decipher.update(Buffer.from(envelope.ciphertext, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid payload');
+    const candidate = parsed as Partial<PortableSecretPayload>;
+    if (candidate.version !== 1 || !Array.isArray(candidate.accounts) || !Array.isArray(candidate.orderInputs)) throw new Error('invalid payload');
+    return candidate as PortableSecretPayload;
+  } catch {
+    throw new Error('كلمة مرور النسخة غير صحيحة أو أن الملف تالف');
+  }
+}
 
 function csvCell(value: unknown) {
   const text = value == null ? '' : String(value);
@@ -116,10 +192,14 @@ function parseMerchantRestoreBackup(content: string): MerchantRestoreBackup | nu
   try { parsed = JSON.parse(content); } catch { throw new Error('هذا ليس ملف نسخة احتياطية صالحًا من Nazzemly'); }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('تنسيق ملف النسخة الاحتياطية غير صحيح');
   const candidate = parsed as Partial<MerchantRestoreBackup>;
-  if (candidate.format !== backupFormat || candidate.version !== 2) return null;
+  if (candidate.format !== backupFormat || (candidate.version !== 2 && candidate.version !== 3)) return null;
   if (!candidate.sections || typeof candidate.sections !== 'object' || Array.isArray(candidate.sections)) throw new Error('ملف الاسترداد لا يحتوي على أقسام صالحة');
   for (const [section, rows] of Object.entries(candidate.sections)) {
     if (!restoreSectionLabels[section] || !Array.isArray(rows)) throw new Error('ملف الاسترداد يحتوي على قسم غير مدعوم');
+  }
+  if (candidate.version === 3) {
+    const protectedData = candidate.protected;
+    if (!protectedData || typeof protectedData !== 'object' || Array.isArray(protectedData)) throw new Error('ملف الاسترداد المحمي لا يحتوي على بيانات الحماية');
   }
   return candidate as MerchantRestoreBackup;
 }
@@ -217,14 +297,15 @@ export async function exportMerchantCsv(dataSet: DataSet) {
   }
 }
 
-export async function exportMerchantBackup() {
+export async function exportMerchantBackup(input: { password: string }) {
   try {
     const { tenantId, storeName } = await getActiveTenant('dashboard');
-    const [tenant, contacts, paymentMethods, bot, categories, services, customers, subscriptions, interests, orders, accountPool, walletTransactions, paymentRequests, tasks, deals, activities, templates, notifications, warrantyCases, expenses, recurringExpenses, advertising, supportTickets, referralProgram] = await Promise.all([
+    const password = requireBackupPassword(input.password);
+    const [tenant, contacts, paymentMethods, bot, categories, services, customers, subscriptions, interests, orders, accountPool, walletTransactions, paymentRequests, tasks, deals, activities, templates, notifications, warrantyCases, expenses, recurringExpenses, advertising, supportTickets, referralProgram, smsIntegration, botEvents, smsLogs, auditLogs] = await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { storeName: true, currency: true, timezone: true, locale: true, reminderDays: true, notifEmail: true, logoUrl: true, businessType: true, businessDescription: true, websiteUrl: true, onboardingStep: true, onboardingCompletedAt: true } }),
       prisma.tenantContact.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
       prisma.tenantPaymentMethod.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
-      prisma.botSettings.findUnique({ where: { tenantId }, select: { botUsername: true, botName: true, tokenLast4: true, isActive: true, welcomeMsg: true, supportMessage: true, menuConfig: true, channelChatId: true, channelUrl: true, requireChannelJoin: true, autoPostServices: true, autoPostRestocks: true, automations: true, broadcasts: true } }),
+      prisma.botSettings.findUnique({ where: { tenantId }, select: { botToken: true, botTokenEncrypted: true, botUsername: true, botName: true, tokenLast4: true, isActive: true, welcomeMsg: true, supportMessage: true, menuConfig: true, channelChatId: true, channelUrl: true, requireChannelJoin: true, autoPostServices: true, autoPostRestocks: true, automations: true, broadcasts: true } }),
       prisma.serviceCategory.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
       prisma.service.findMany({ where: { tenantId }, include: { plans: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
       prisma.customer.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
@@ -245,25 +326,57 @@ export async function exportMerchantBackup() {
       prisma.adCampaign.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
       prisma.supportTicket.findMany({ where: { tenantId }, include: { messages: true }, orderBy: { createdAt: 'asc' } }),
       prisma.referralProgram.findUnique({ where: { tenantId }, include: { walletEntries: true, payoutRequests: true, attributions: true } }),
+      prisma.sMSIntegration.findUnique({ where: { tenantId } }),
+      prisma.botEvent.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
+      prisma.sMSLog.findMany({ where: { tenantId }, orderBy: { receivedAt: 'asc' } }),
+      prisma.auditLog.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
     ]);
+    const botToken = bot?.botTokenEncrypted ? decryptSecret(bot.botTokenEncrypted) : bot?.botToken || undefined;
+    const botConfiguration = bot
+      ? (({ botToken: _botToken, botTokenEncrypted: _botTokenEncrypted, ...configuration }) => configuration)(bot)
+      : null;
+    const portableAccounts = accountPool.map(({ credentials, credentialsEncrypted, credentialDataEncrypted, ...account }) => ({
+      ...account,
+      credentials: null,
+      credentialsEncrypted: null,
+      credentialDataEncrypted: null,
+    }));
+    const portableOrders = orders.map(({ inputValues, ...order }) => ({
+      ...order,
+      inputValues: inputValues.map(({ valueEncrypted, ...input }) => ({ ...input, valueEncrypted: null })),
+    }));
+    const portableSmsIntegration = smsIntegration
+      ? (({ secretEncrypted: _secretEncrypted, ...configuration }) => configuration)(smsIntegration)
+      : null;
+    const protectedPayload: PortableSecretPayload = {
+      version: 1,
+      ...(botToken ? { botToken } : {}),
+      ...(smsIntegration?.secretEncrypted ? { smsIntegration: { secret: decryptSecret(smsIntegration.secretEncrypted) } } : {}),
+      accounts: accountPool.map((account) => ({
+        id: account.id,
+        credentials: account.credentialsEncrypted ? decryptSecret(account.credentialsEncrypted) : account.credentials,
+        credentialData: account.credentialDataEncrypted ? decryptSecret(account.credentialDataEncrypted) : null,
+      })),
+      orderInputs: orders.flatMap((order) => order.inputValues.map((item) => ({ id: item.id, value: decryptSecret(item.valueEncrypted) }))),
+    };
     const archive: MerchantRestoreBackup = {
       format: backupFormat,
-      version: 2,
+      version: 3,
       createdAt: new Date().toISOString(),
-      productVersion: 'nazzemly-restore-v2',
+      productVersion: 'nazzemly-restore-v3',
       scope: 'merchant_operational_data',
       sections: {
         merchant_profile: [tenant],
         contacts,
         payment_methods: paymentMethods,
-        bot_configuration: bot ? [bot] : [],
+        bot_configuration: botConfiguration ? [botConfiguration] : [],
         categories,
         services,
         customers,
         subscriptions,
         interests,
-        orders,
-        account_pool: accountPool,
+        orders: portableOrders,
+        account_pool: portableAccounts,
         wallet: [{ walletTransactions, paymentRequests }],
         customer_operations: [{ tasks, deals, activities }],
         messages: [{ templates, notifications }],
@@ -271,7 +384,12 @@ export async function exportMerchantBackup() {
         financials: [{ expenses, recurringExpenses, advertising }],
         support: supportTickets,
         referral_wallet: referralProgram ? [referralProgram] : [],
+        sms_integration: portableSmsIntegration ? [portableSmsIntegration] : [],
+        bot_history: botEvents,
+        sms_history: smsLogs,
+        audit_log: auditLogs,
       },
+      protected: encryptPortableSecrets(protectedPayload, password),
     };
     const safeStore = storeName.replace(/[^\p{L}\p{N}_-]+/gu, '-');
     return {
@@ -465,13 +583,17 @@ function toTenantRow(row: Record<string, any>, tenantId: string, omit: string[] 
   return { ...copy, tenantId };
 }
 
-async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBackup; tenantId: string; userId: string }) {
+async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBackup; tenantId: string; userId: string; password?: string }) {
   const { archive, tenantId, userId } = input;
+  const protectedSecrets = archive.version === 3
+    ? decryptPortableSecrets(archive.protected!, requireBackupPassword(input.password))
+    : null;
   const results: RestoreResult[] = [];
   const rows = (key: string) => restoreRows(archive, key);
   const record = (dataSet: string, total: number, created: number) => results.push({ dataSet, total, created, updated: 0, skipped: Math.max(0, total - created), success: true });
 
   await prisma.$transaction(async (tx) => {
+    let restoredBotSettingsId: string | null = null;
     const profile = rows('merchant_profile')[0];
     if (profile) {
       const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...profileData } = profile;
@@ -486,14 +608,45 @@ async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBack
 
     const bot = rows('bot_configuration')[0];
     if (bot) {
-      const { automations: sourceAutomations, broadcasts: sourceBroadcasts, ...botData } = bot;
-      const settings = await tx.botSettings.upsert({ where: { tenantId }, update: { ...botData, connectionStatus: 'disconnected', isActive: false } as any, create: { tenantId, ...botData, connectionStatus: 'disconnected', isActive: false } as any });
+      const { automations: sourceAutomations, broadcasts: sourceBroadcasts, botToken: _legacyBotToken, botTokenEncrypted: _legacyTokenEncrypted, webhookSecretHash: _legacyWebhookSecretHash, ...botData } = bot;
+      const restoredToken = protectedSecrets?.botToken;
+      const secureBotData = {
+        ...botData,
+        botToken: null,
+        botTokenEncrypted: restoredToken ? encryptSecret(restoredToken) : null,
+        tokenLast4: restoredToken ? restoredToken.slice(-4) : botData.tokenLast4 || null,
+        connectionStatus: 'disconnected',
+        isActive: false,
+      };
+      const settings = await tx.botSettings.upsert({ where: { tenantId }, update: secureBotData as any, create: { tenantId, ...secureBotData } as any });
+      restoredBotSettingsId = settings.id;
       const automations = Array.isArray(sourceAutomations) ? sourceAutomations.map((row: Record<string, any>) => ({ ...toTenantRow(row, tenantId), botSettingsId: settings.id })) : [];
       if (automations.length) await tx.botAutomation.createMany({ data: automations as any, skipDuplicates: true });
       const broadcasts = Array.isArray(sourceBroadcasts) ? sourceBroadcasts.map((row: Record<string, any>) => ({ ...toTenantRow(row, tenantId), botSettingsId: settings.id })) : [];
       if (broadcasts.length) await tx.botBroadcast.createMany({ data: broadcasts as any, skipDuplicates: true });
       record('bot_configuration', 1, 1);
     }
+
+    const smsConfig = rows('sms_integration')[0];
+    const restoredSmsSecret = protectedSecrets?.smsIntegration?.secret;
+    if (smsConfig && restoredSmsSecret) {
+      const { id: _id, tenantId: _tenantId, secretLast4: _secretLast4, ...smsData } = smsConfig;
+      await tx.sMSIntegration.upsert({
+        where: { tenantId },
+        update: { ...smsData, secretEncrypted: encryptSecret(restoredSmsSecret), secretLast4: restoredSmsSecret.slice(-4) } as any,
+        create: { tenantId, ...smsData, secretEncrypted: encryptSecret(restoredSmsSecret), secretLast4: restoredSmsSecret.slice(-4) } as any,
+      });
+      record('sms_integration', 1, 1);
+    }
+
+    const botEvents = restoredBotSettingsId
+      ? rows('bot_history').map((row) => toTenantRow({ ...row, botSettingsId: restoredBotSettingsId }, tenantId))
+      : [];
+    if (botEvents.length) record('bot_history', botEvents.length, (await tx.botEvent.createMany({ data: botEvents as any, skipDuplicates: true })).count);
+    const smsLogs = rows('sms_history').map((row) => toTenantRow(row, tenantId));
+    if (smsLogs.length) record('sms_history', smsLogs.length, (await tx.sMSLog.createMany({ data: smsLogs as any, skipDuplicates: true })).count);
+    const auditLogs = rows('audit_log').map((row) => toTenantRow(row, tenantId, ['userId']));
+    if (auditLogs.length) record('audit_log', auditLogs.length, (await tx.auditLog.createMany({ data: auditLogs as any, skipDuplicates: true })).count);
 
     const categories = rows('categories').map((row) => toTenantRow(row, tenantId));
     if (categories.length) record('categories', categories.length, (await tx.serviceCategory.createMany({ data: categories as any, skipDuplicates: true })).count);
@@ -513,13 +666,27 @@ async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBack
     const orderRows = rows('orders');
     const orders = orderRows.map(({ inputValues: _inputValues, events: _events, ...row }) => toTenantRow(row, tenantId, ['assignedToId']));
     if (orders.length) record('orders', orders.length, (await tx.order.createMany({ data: orders as any, skipDuplicates: true })).count);
-    const inputs = orderRows.flatMap((order) => Array.isArray(order.inputValues) ? order.inputValues.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : []);
+    const restoredInputValues = new Map((protectedSecrets?.orderInputs || []).map((item) => [item.id, item.value]));
+    const inputs = orderRows.flatMap((order) => Array.isArray(order.inputValues) ? order.inputValues.map((row: Record<string, any>) => {
+      const { valueEncrypted: legacyValueEncrypted, ...inputRow } = row;
+      const value = restoredInputValues.get(row.id);
+      return toTenantRow({ ...inputRow, valueEncrypted: value ? encryptSecret(value) : legacyValueEncrypted || null }, tenantId);
+    }) : []);
     if (inputs.length) record('orders', inputs.length, (await tx.orderInputValue.createMany({ data: inputs as any, skipDuplicates: true })).count);
     const events = orderRows.flatMap((order) => Array.isArray(order.events) ? order.events.map((row: Record<string, any>) => toTenantRow(row, tenantId, ['actorId'])) : []);
     if (events.length) record('orders', events.length, (await tx.orderEvent.createMany({ data: events as any, skipDuplicates: true })).count);
 
     const accountRows = rows('account_pool');
-    const accountPool = accountRows.map(({ allocations: _allocations, ...row }) => toTenantRow(row, tenantId));
+    const restoredAccounts = new Map((protectedSecrets?.accounts || []).map((item) => [item.id, item]));
+    const accountPool = accountRows.map(({ allocations: _allocations, credentials: legacyCredentials, credentialsEncrypted: legacyCredentialsEncrypted, credentialDataEncrypted: legacyCredentialData, ...row }) => {
+      const restored = restoredAccounts.get(row.id);
+      return toTenantRow({
+        ...row,
+        credentials: restored ? null : legacyCredentials || null,
+        credentialsEncrypted: restored?.credentials ? encryptSecret(restored.credentials) : legacyCredentialsEncrypted || null,
+        credentialDataEncrypted: restored?.credentialData ? encryptSecret(restored.credentialData) : legacyCredentialData || null,
+      }, tenantId);
+    });
     if (accountPool.length) record('account_pool', accountPool.length, (await tx.accountPool.createMany({ data: accountPool as any, skipDuplicates: true })).count);
     const allocations = accountRows.flatMap((account) => Array.isArray(account.allocations) ? account.allocations.map((row: Record<string, any>) => toTenantRow(row, tenantId)) : []);
     if (allocations.length) record('account_pool', allocations.length, (await tx.deliveryAllocation.createMany({ data: allocations as any, skipDuplicates: true })).count);
@@ -595,12 +762,12 @@ async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBack
   return results;
 }
 
-export async function importMerchantBackup(input: { content: string }) {
+export async function importMerchantBackup(input: { content: string; password?: string }) {
   try {
     const { tenantId, session } = await getActiveTenant('dashboard');
     const restoreArchive = parseMerchantRestoreBackup(input.content);
     if (restoreArchive) {
-      const results = await importMerchantRestoreBackup({ archive: restoreArchive, tenantId, userId: session.userId });
+      const results = await importMerchantRestoreBackup({ archive: restoreArchive, tenantId, userId: session.userId, password: input.password });
       const created = results.reduce((sum, result) => sum + result.created, 0);
       const skipped = results.reduce((sum, result) => sum + result.skipped, 0);
       await writeAuditLog({ tenantId, userId: session.userId, action: 'data.restore_backup_imported', entityType: 'merchant_restore_backup', metadata: { created, skipped, sections: results.map(({ dataSet, total }) => ({ dataSet, total })), backupCreatedAt: restoreArchive.createdAt } });

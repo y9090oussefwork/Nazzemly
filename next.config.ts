@@ -1,6 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // A merchant restore archive can legitimately contain historical orders,
+    // receipts, and encrypted delivery credentials. The import action validates
+    // the archive before it reaches the database.
+    serverActions: {
+      bodySizeLimit: '80mb',
+    },
+  },
   async headers() {
     return [
       {
