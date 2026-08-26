@@ -11,6 +11,47 @@ import { writeAuditLog } from '@/lib/audit';
 
 const PAYMENT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
 
+export async function getSaaSBillingOverview() {
+  try {
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: session.tenantId },
+      select: {
+        id: true,
+        storeName: true,
+        currency: true,
+        saasPlan: true,
+        saasStatus: true,
+        saasExpiry: true,
+        saasBalance: true,
+      },
+    });
+    if (!tenant) throw new Error('المتجر غير موجود');
+
+    // This keeps the account page usable on an existing server before the
+    // optional auto-renew column is applied by the deployment migration.
+    let autoRenew = false;
+    let autoRenewAvailable = true;
+    try {
+      const renewalSetting = await prisma.tenant.findUnique({
+        where: { id: session.tenantId },
+        select: { autoRenew: true },
+      });
+      autoRenew = renewalSetting?.autoRenew === true;
+    } catch {
+      autoRenewAvailable = false;
+    }
+
+    return {
+      success: true,
+      tenant: { ...tenant, saasBalance: money(tenant.saasBalance), autoRenew, autoRenewAvailable },
+    };
+  } catch (error) {
+    console.error('getSaaSBillingOverview failed', error);
+    return { success: false, error: error instanceof Error ? error.message : 'تعذر تحميل حالة الحساب والفوترة' };
+  }
+}
+
 export async function changeMerchantPassword(
   currentPasswordInput: string,
   newPasswordInput: string,

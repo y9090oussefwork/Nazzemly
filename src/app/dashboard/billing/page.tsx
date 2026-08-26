@@ -10,8 +10,8 @@ import {
   renewSaaSPlan,
   setSaaSAutoRenew,
   getMySaaSPayments,
+  getSaaSBillingOverview,
 } from '@/app/actions/billing';
-import { getSettings } from '@/app/actions/merchant';
 import {
   Wallet,
   Clock,
@@ -34,6 +34,8 @@ export default function BillingPage() {
   const [plans, setPlans] = useState<any[]>([]);
   const [selectedPlanCode, setSelectedPlanCode] = useState('basic');
   const [selectedMonths, setSelectedMonths] = useState(1);
+  const [billingNotice, setBillingNotice] = useState('');
+  const [billingLoading, setBillingLoading] = useState(true);
 
   // Forms
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', password: '', confirm: '' });
@@ -58,26 +60,34 @@ export default function BillingPage() {
   }, [mounted, router]);
 
   const refreshBillingData = async () => {
+    setBillingLoading(true);
+    setBillingNotice('');
     try {
-      const settingsRes = await getSettings();
-      if (settingsRes.success && settingsRes.tenant) {
-        setTenant(settingsRes.tenant);
-        if (settingsRes.tenant.saasPlan && settingsRes.tenant.saasPlan !== 'free_trial') {
-          setSelectedPlanCode(settingsRes.tenant.saasPlan);
+      const [overviewRes, payRes] = await Promise.all([getSaaSBillingOverview(), getMySaaSPayments()]);
+      if (overviewRes.success && overviewRes.tenant) {
+        setTenant(overviewRes.tenant);
+        if (overviewRes.tenant.saasPlan && overviewRes.tenant.saasPlan !== 'free_trial') {
+          setSelectedPlanCode(overviewRes.tenant.saasPlan);
         }
+      } else {
+        setTenant(null);
+        setBillingNotice(overviewRes.error || 'تعذر تحميل حالة الاشتراك. حاول تحديث الصفحة.');
       }
 
-      const payRes = await getMySaaSPayments();
       if (payRes.success) {
         setMyPayments(payRes.requests);
         setPlans(payRes.plans || []);
         if (payRes.plans?.length && !payRes.plans.some((plan: any) => plan.code === selectedPlanCode)) {
           setSelectedPlanCode(payRes.plans[0].code);
         }
+      } else if (overviewRes.success) {
+        setBillingNotice(payRes.error || 'تعذر تحميل تفاصيل الباقات وطلبات الشحن.');
       }
     } catch (e) {
       console.error('Error fetching billing data:', e);
+      setBillingNotice('تعذر الاتصال بخدمة الفوترة الآن. أعد المحاولة بعد لحظات.');
     } finally {
+      setBillingLoading(false);
     }
   };
 
@@ -185,13 +195,14 @@ export default function BillingPage() {
         <p className="text-sm font-bold text-emerald-400">إدارة المتجر</p>
         <h2 className="mt-1 text-xl font-black text-white">الحساب والفوترة</h2>
       </div>
+      {billingNotice ? <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"><span>{billingNotice}</span><button onClick={() => void refreshBillingData()} className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-black text-amber-100">إعادة المحاولة</button></div> : null}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         
         {/* Left Column: Account Plan Summary & Renew */}
         <div className="space-y-8 lg:col-span-1">
           
           {/* Plan Status Card */}
-          {tenant && (
+          {billingLoading ? <div className="h-80 animate-pulse rounded-3xl border border-zinc-800 bg-zinc-900/40" /> : tenant ? (
             <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-6 shadow-xl space-y-5 text-right">
               <h3 className="text-sm font-black text-white flex items-center gap-2 border-b border-zinc-800/50 pb-3">
                 <Wallet className="w-5 h-5 text-emerald-400" />
@@ -289,15 +300,15 @@ export default function BillingPage() {
                 </div>
               )}
 
-                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-300">
+                    {tenant.autoRenewAvailable !== false ? <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-300">
                       <input type="checkbox" checked={Boolean(tenant.autoRenew)} onChange={(event) => handleAutoRenewChange(event.target.checked)} disabled={isPending} className="mt-0.5 h-4 w-4 accent-emerald-500" />
                       <span><strong className="text-white">تفعيل التجديد التلقائي</strong><br /><span className="text-[11px] text-zinc-500">سيحاول النظام التجديد قبل الانتهاء بيومين من رصيدك. لن يتم الخصم إذا لم يكفِ الرصيد، وستظهر لك رسالة واضحة.</span></span>
-                    </label>
+                    </label> : <p className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-3 text-xs leading-6 text-sky-100">تم تحميل بيانات الحساب بنجاح. سيظهر خيار التجديد التلقائي بعد تطبيق تحديث قاعدة البيانات الأخير على السيرفر.</p>}
                   </>
                 );
               })()}
             </div>
-          )}
+          ) : <div className="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-6 text-center text-sm leading-7 text-amber-100">لم نستطع قراءة بيانات اشتراكك حالياً. استخدم زر إعادة المحاولة بالأعلى، وإذا استمرت المشكلة تواصل مع الدعم.</div>}
 
           {/* Change Password Form */}
           <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-3xl p-6 shadow-xl text-right">

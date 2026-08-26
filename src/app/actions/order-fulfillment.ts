@@ -274,7 +274,7 @@ export async function revealDeliveryUnit(id: string) {
 }
 
 export async function getOrders(input?: { status?: string; query?: string; queueOnly?: boolean }) {
-  const { tenantId } = await getActiveTenant('subscriptions');
+  const { tenantId } = await getActiveTenant('subscriptions', { allowInactiveTenant: true });
   const query = String(input?.query ?? '').trim().slice(0, 100);
   const rows = await prisma.order.findMany({
     where: {
@@ -458,4 +458,3 @@ export async function updateOrderFulfillmentStatus(input: {
     return { success: false, error: errorMessage(error) };
   }
 }
-

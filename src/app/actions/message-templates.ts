@@ -8,7 +8,7 @@ import { writeAuditLog } from '@/lib/audit';
 const channels = ['telegram', 'whatsapp', 'internal'] as const;
 
 export async function getMessageTemplates() {
-  const { tenantId } = await getActiveTenant('dashboard');
+  const { tenantId } = await getActiveTenant('dashboard', { allowInactiveTenant: true });
   const templates = await prisma.messageTemplate.findMany({ where: { tenantId }, orderBy: [{ category: 'asc' }, { name: 'asc' }], select: { id: true, name: true, category: true, channel: true, content: true, isActive: true, updatedAt: true } });
   return { success: true, templates };
 }

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { logoutMerchant } from '@/app/actions/auth';
 import { getMerchantOnboardingState } from '@/app/actions/merchant-profile';
+import DashboardAccessGate from './dashboard-access-gate';
 
 const navGroups = [
   { label: 'التشغيل اليومي', items: [
@@ -137,7 +138,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           <div><p className="text-xs font-bold text-emerald-400">مساحة العمل</p><h1 className="mt-0.5 text-lg font-black">{pageTitle}</h1></div>
           <button onClick={() => setMobileOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-700 text-zinc-200 transition-colors duration-150 hover:bg-zinc-900 active:scale-[0.98] md:hidden" aria-label="فتح القائمة"><Menu className="h-5 w-5" /></button>
         </header>
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="px-4 py-6 sm:px-6 lg:px-8"><DashboardAccessGate>{children}</DashboardAccessGate></main>
       </div>
 
       {mobileOpen ? <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="قائمة التنقل">

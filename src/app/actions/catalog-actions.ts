@@ -162,7 +162,7 @@ async function notifyWaitingCustomers(tenantId: string, planId: string) {
 }
 
 export async function getCatalog() {
-  const { tenantId, currency } = await getActiveTenant('services');
+  const { tenantId, currency } = await getActiveTenant('services', { allowInactiveTenant: true });
   const [categories, uncategorizedServices, waitingCount] = await Promise.all([
     prisma.serviceCategory.findMany({
       where: { tenantId },
@@ -415,7 +415,7 @@ export async function setCatalogItemState(input: {
 }
 
 export async function getServiceInterests() {
-  const { tenantId } = await getActiveTenant('services');
+  const { tenantId } = await getActiveTenant('services', { allowInactiveTenant: true });
   const rows = await prisma.serviceInterest.findMany({
     where: { tenantId },
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],

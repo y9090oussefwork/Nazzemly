@@ -838,7 +838,6 @@ export async function getSettings() {
         saasPlan: true,
         saasStatus: true,
         saasExpiry: true,
-        autoRenew: true,
         saasBalance: true,
         botSettings: {
           select: {

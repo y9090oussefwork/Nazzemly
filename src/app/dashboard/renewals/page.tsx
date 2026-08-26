@@ -10,11 +10,11 @@ export default async function RenewalsPage() {
   return (
     <main className="space-y-6" dir="rtl">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-5">
-        <div><p className="text-sm text-emerald-400">التشغيل اليومي</p><h1 className="mt-1 text-2xl font-bold text-white">مركز التجديدات</h1><p className="mt-2 text-sm text-zinc-400">رتّب التواصل مع العملاء قبل انتهاء اشتراكاتهم، وسجّل نتيجة كل متابعة.</p></div>
-        <Link href="/dashboard/manage?tab=subscriptions" className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-black">إضافة أو تجديد اشتراك</Link>
+        <div><p className="text-sm text-emerald-400">التشغيل اليومي</p><h1 className="mt-1 text-2xl font-bold text-white">تجديدات العملاء</h1><p className="mt-2 text-sm text-zinc-400">هذه الصفحة لمتابعة اشتراكات عملائك. أما باقة المنصة ورصيد محفظتك فتجدها في الحساب والفوترة.</p></div>
+        <div className="flex flex-wrap gap-2"><Link href="/dashboard/billing" className="rounded-xl border border-amber-400/35 px-4 py-2.5 text-sm font-bold text-amber-100">اشتراك المنصة والمحفظة</Link><Link href="/dashboard/manage?tab=subscriptions" className="rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-black">إضافة أو تجديد اشتراك عميل</Link></div>
       </header>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {[["متأخر", result.counts.overdue, 'text-rose-300'], ["اليوم", result.counts.today, 'text-amber-300'], ["خلال أسبوع", result.counts.week, 'text-violet-300'], ["خلال 30 يومًا", result.counts.month, 'text-sky-300'], ["تم التواصل", result.counts.contacted, 'text-emerald-300']].map(([label, count, tone]) => <div key={String(label)} className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4"><p className="text-xs text-zinc-400">{label}</p><p className={`mt-2 text-3xl font-bold ${tone}`}>{count}</p></div>)}
+        {[["متأخر", result.counts.overdue, 'text-rose-300'], ["اليوم", result.counts.today, 'text-amber-300'], ["خلال أسبوع", result.counts.week, 'text-sky-200'], ["خلال 30 يومًا", result.counts.month, 'text-sky-300'], ["تم التواصل", result.counts.contacted, 'text-emerald-300']].map(([label, count, tone]) => <div key={String(label)} className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4"><p className="text-xs text-zinc-400">{label}</p><p className={`mt-2 text-3xl font-bold ${tone}`}>{count}</p></div>)}
       </section>
       <section className="overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/60">
         <div className="border-b border-white/10 px-5 py-4"><h2 className="font-bold text-white">قائمة التجديدات القريبة</h2></div>
