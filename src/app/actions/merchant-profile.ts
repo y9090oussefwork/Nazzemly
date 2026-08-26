@@ -52,7 +52,7 @@ function setupMissing(input: {
 }
 
 export async function getMerchantProfile() {
-  const { tenantId } = await getActiveTenant('settings');
+  const { tenantId } = await getActiveTenant('settings', { allowInactiveTenant: true });
   const tenant = await prisma.tenant.findUniqueOrThrow({
     where: { id: tenantId },
     select: {
@@ -119,7 +119,7 @@ export async function saveBusinessProfile(input: {
   websiteUrl?: string;
 }) {
   try {
-    const { tenantId, session } = await getActiveTenant('settings');
+    const { tenantId, session } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const data = {
       storeName: cleanText(input.storeName, 'اسم النشاط', 2, 120),
       businessType: cleanText(input.businessType, 'نوع النشاط', 2, 100),
@@ -142,7 +142,7 @@ export async function saveContactMethods(input: {
   contacts: Array<{ type: string; label?: string; value: string; url?: string; showInBot?: boolean }>;
 }) {
   try {
-    const { tenantId, session } = await getActiveTenant('settings');
+    const { tenantId, session } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const contacts = input.contacts.slice(0, 20).map((item, index) => {
       const type = CONTACT_TYPES.includes(item.type as (typeof CONTACT_TYPES)[number]) ? item.type : 'other';
       const value = cleanText(item.value, 'بيانات التواصل', 2, 300);
@@ -185,7 +185,7 @@ export async function savePaymentMethods(input: {
   rechargeAmounts?: string;
 }) {
   try {
-    const { tenantId, session } = await getActiveTenant('settings');
+    const { tenantId, session } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const methods = input.methods.slice(0, 12).map((item, index) => {
       const type = PAYMENT_TYPES.includes(item.type as (typeof PAYMENT_TYPES)[number]) ? item.type : 'other';
       return {
@@ -273,7 +273,7 @@ export async function saveMarketingChannel(input: {
 
 export async function completeMerchantOnboarding() {
   try {
-    const { tenantId, session } = await getActiveTenant('settings');
+    const { tenantId, session } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const tenant = await prisma.tenant.findUniqueOrThrow({
       where: { id: tenantId },
       select: {

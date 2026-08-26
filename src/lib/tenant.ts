@@ -10,8 +10,11 @@ export interface TenantContext {
   session: SessionContext;
 }
 
-export async function getActiveTenant(permission = 'dashboard'): Promise<TenantContext> {
-  const session = await requirePermission(permission);
+export async function getActiveTenant(
+  permission = 'dashboard',
+  options: { allowInactiveTenant?: boolean } = {},
+): Promise<TenantContext> {
+  const session = await requirePermission(permission, options);
   const tenant = await prisma.tenant.findUnique({
     where: { id: session.tenantId },
     select: {
@@ -24,7 +27,7 @@ export async function getActiveTenant(permission = 'dashboard'): Promise<TenantC
   });
 
   if (!tenant) throw new Error('Tenant not found');
-  if (tenant.saasStatus !== 'active' || (tenant.saasExpiry && tenant.saasExpiry <= new Date())) {
+  if (!options.allowInactiveTenant && (tenant.saasStatus !== 'active' || (tenant.saasExpiry && tenant.saasExpiry <= new Date()))) {
     throw new Error('TENANT_SUBSCRIPTION_INACTIVE');
   }
 
