@@ -12,6 +12,7 @@ import { approvePayment, getPendingPayments, rejectPayment } from '@/app/actions
 import { getCRMWorkspace } from '@/app/actions/crm';
 import AnalyticsDashboard from './analytics-dashboard';
 import HomeSearch from './home-search';
+import TodayControlCenter from './today-control-center';
 
 type Screen = 'today' | 'customers' | 'requests';
 type Modal = 'customer' | 'subscription' | null;
@@ -96,14 +97,6 @@ function DashboardWorkspace() {
 
   useEffect(() => { void refresh(); }, []);
 
-  const expiring = useMemo(() => subscriptions.filter((item) => {
-    const days = Math.ceil((new Date(item.endDate).getTime() - new Date(todayDate()).getTime()) / 86_400_000);
-    return days >= 0 && days <= 7 && item.status === 'active';
-  }), [subscriptions]);
-  const unattended = useMemo(() => customers.filter((item) => {
-    if (!item.lastContactAt) return true;
-    return Date.now() - new Date(item.lastContactAt).getTime() > 3 * 86_400_000;
-  }), [customers]);
   const openTasks = useMemo(() => (workspace?.tasks || []).filter((item: any) => item.status !== 'done' && item.status !== 'cancelled'), [workspace]);
   const visibleCustomers = useMemo(() => customers.filter((item) => {
     const keyword = search.trim().toLowerCase();
@@ -220,20 +213,13 @@ function DashboardWorkspace() {
 
       {screen === 'today' ? <section className="mt-7 space-y-7">
         <AnalyticsDashboard />
+        <TodayControlCenter />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="العملاء" value={stats?.totalCustomers || 0} />
           <Metric label="اشتراكات نشطة" value={stats?.activeSubs || 0} />
           <Metric label="طلبات بانتظارك" value={payments.length} emphasis={payments.length > 0} />
           <Metric label="مهام مفتوحة" value={openTasks.length} />
         </div>
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">ما يحتاج انتباهك اليوم</h2><p className="mt-1 text-sm text-zinc-500">رتّب يومك من أهم إجراء إلى الأقل.</p></div><button onClick={() => setScreen('requests')} className="text-sm font-bold text-emerald-400 transition-colors duration-150 hover:text-emerald-300">مراجعة الطلبات</button></div>
-          <div className="mt-5 grid gap-3 lg:grid-cols-3">
-            <Attention title="طلبات شحن معلقة" count={payments.length} description={payments.length ? 'اعتمد الطلب بعد مراجعة التحويل.' : 'لا توجد طلبات بانتظار الاعتماد.'} action={() => setScreen('requests')} />
-            <Attention title="اشتراكات قريبة" count={expiring.length} description={expiring.length ? 'تواصل مع العملاء قبل انتهاء الاشتراك.' : 'لا توجد اشتراكات تنتهي خلال 7 أيام.'} action={() => setScreen('customers')} />
-            <Attention title="عملاء بلا متابعة" count={unattended.length} description={unattended.length ? 'أرسل رسالة سريعة أو أضف مهمة متابعة.' : 'كل العملاء لديهم متابعة حديثة.'} action={() => setScreen('customers')} />
-          </div>
-        </section>
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5"><h2 className="text-lg font-black">آخر المهام</h2>{openTasks.length ? <div className="mt-4 grid gap-2 md:grid-cols-2">{openTasks.slice(0, 6).map((task: any) => <div key={task.id} className="rounded-xl bg-zinc-950 px-4 py-3"><p className="font-bold">{task.title}</p><p className="mt-1 text-sm text-zinc-500">{task.customer?.name || 'مهمة عامة'}{task.dueAt ? ` | ${new Date(task.dueAt).toLocaleDateString('ar-EG')}` : ''}</p></div>)}</div> : <Empty text="لا توجد مهام مفتوحة. استخدم قسم الصفقات والفريق لإضافة مهام للفريق." />}</section>
       </section> : null}
 
@@ -296,7 +282,6 @@ function DashboardWorkspace() {
 
 const inputClass = 'w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none transition-colors duration-150 focus:border-emerald-400';
 function Metric({ label, value, emphasis = false }: { label: string; value: number; emphasis?: boolean }) { return <div className={`rounded-2xl border p-4 ${emphasis ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-zinc-800 bg-zinc-900/50'}`}><p className="text-sm text-zinc-500">{label}</p><p className={`mt-2 text-3xl font-black ${emphasis ? 'text-emerald-400' : 'text-zinc-100'}`}>{value}</p></div>; }
-function Attention({ title, count, description, action }: { title: string; count: number; description: string; action: () => void }) { return <button onClick={action} className="rounded-xl bg-zinc-950 p-4 text-right transition-colors duration-150 hover:bg-zinc-800 active:scale-[0.98]"><p className="font-bold">{title}</p><p className="mt-2 text-2xl font-black text-emerald-400">{count}</p><p className="mt-2 text-sm leading-6 text-zinc-500">{description}</p></button>; }
 function Empty({ text, action, onAction }: { text: string; action?: string; onAction?: () => void }) { return <div className="mt-5 rounded-2xl border border-dashed border-zinc-700 p-8 text-center"><p className="text-sm text-zinc-500">{text}</p>{action && onAction ? <button onClick={onAction} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-zinc-950 transition-transform duration-150 active:scale-[0.98]"><Plus className="h-4 w-4" />{action}</button> : null}</div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-sm font-semibold text-zinc-300">{label}</span>{children}</label>; }
 export default function DashboardPage() {

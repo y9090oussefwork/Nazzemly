@@ -661,7 +661,7 @@ export async function addSubscription(data: {
         });
         if (stock.count !== 1) throw new Error('لا يوجد مخزون متاح لهذه المدة');
       }
-      return tx.subscription.create({
+      const created = await tx.subscription.create({
         data: {
           tenantId,
           customerId: customer.id,
@@ -682,6 +682,18 @@ export async function addSubscription(data: {
           createdBy: session.userId,
         },
       });
+      await tx.customerActivity.create({
+        data: {
+          tenantId,
+          customerId: customer.id,
+          userId: session.userId,
+          type: 'subscription_created',
+          title: 'تمت إضافة اشتراك',
+          details: `${service.name} · ${plan?.name || `${duration} يوم`} · ينتهي ${endDate.toLocaleDateString('ar-EG')}`,
+          metadata: { subscriptionId: created.id, serviceId: service.id, servicePlanId: plan?.id || null, sellingPrice: Number(pricing.sellingPrice) },
+        },
+      });
+      return created;
     });
     await writeAuditLog({
       tenantId,
@@ -718,12 +730,26 @@ export async function extendSubscription(
     const base = current.endDate > now ? current.endDate : now;
     const endDate = new Date(base);
     endDate.setUTCDate(endDate.getUTCDate() + days);
-    const subscription = await prisma.subscription.update({
-      where: { id: current.id },
-      data: {
-        ...(days ? { endDate, status: 'active' } : {}),
-        notes: optionalText(data.notes, 2000) ?? current.notes,
-      },
+    const subscription = await prisma.$transaction(async (tx) => {
+      const updated = await tx.subscription.update({
+        where: { id: current.id },
+        data: {
+          ...(days ? { endDate, status: 'active' } : {}),
+          notes: optionalText(data.notes, 2000) ?? current.notes,
+        },
+      });
+      await tx.customerActivity.create({
+        data: {
+          tenantId,
+          customerId: current.customerId,
+          userId: session.userId,
+          type: days ? 'subscription_extended' : 'subscription_note',
+          title: days ? `تم تمديد الاشتراك ${days} يوم` : 'تم تحديث ملاحظة الاشتراك',
+          details: days ? `تاريخ النهاية الجديد: ${endDate.toLocaleDateString('ar-EG')}` : optionalText(data.notes, 500),
+          metadata: { subscriptionId: current.id, days, previousEndDate: current.endDate.toISOString(), endDate: endDate.toISOString() },
+        },
+      });
+      return updated;
     });
     await writeAuditLog({
       tenantId,
@@ -789,7 +815,7 @@ export async function renewSubscription(
           notes: [original.notes, `تم التجديد في ${new Date().toLocaleDateString('ar-EG')}`].filter(Boolean).join('\n'),
         },
       });
-      return tx.subscription.create({
+      const renewed = await tx.subscription.create({
         data: {
           tenantId,
           customerId: original.customerId,
@@ -811,6 +837,18 @@ export async function renewSubscription(
           createdBy: session.userId,
         },
       });
+      await tx.customerActivity.create({
+        data: {
+          tenantId,
+          customerId: original.customerId,
+          userId: session.userId,
+          type: 'subscription_renewed',
+          title: 'تم تجديد الاشتراك',
+          details: `${original.service.name} · ${plan?.name || `${duration} يوم`} · ينتهي ${endDate.toLocaleDateString('ar-EG')}`,
+          metadata: { subscriptionId: renewed.id, renewedFromId: original.id, servicePlanId: plan?.id || null, sellingPrice: Number(pricing.sellingPrice) },
+        },
+      });
+      return renewed;
     });
 
     await writeAuditLog({
@@ -836,10 +874,17 @@ export async function renewSubscription(
 export async function deleteSubscription(id: string) {
   try {
     const { tenantId, session } = await getActiveTenant('subscriptions.delete');
-    await prisma.subscription.update({
-      where: { id, tenantId },
-      data: { status: 'canceled', notes: 'تم الإلغاء من لوحة التحكم' },
-    });
+    const current = await prisma.subscription.findFirst({ where: { id, tenantId }, select: { id: true, customerId: true, service: { select: { name: true } } } });
+    if (!current) throw new Error('الاشتراك غير موجود');
+    await prisma.$transaction([
+      prisma.subscription.update({
+        where: { id: current.id },
+        data: { status: 'canceled', notes: 'تم الإلغاء من لوحة التحكم' },
+      }),
+      prisma.customerActivity.create({
+        data: { tenantId, customerId: current.customerId, userId: session.userId, type: 'subscription_cancelled', title: 'تم إلغاء الاشتراك', details: current.service.name, metadata: { subscriptionId: current.id } },
+      }),
+    ]);
     await writeAuditLog({
       tenantId,
       userId: session.userId,
