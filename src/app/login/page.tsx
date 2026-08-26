@@ -1,148 +1,110 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import Link from 'next/link';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowRight, Check, CircleAlert, KeyRound, Loader2, LogIn, PackageCheck, ShieldCheck, User, UserPlus } from 'lucide-react';
 import { loginMerchant } from '@/app/actions/auth';
-import { KeyRound, User, Loader2, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return null;
-  }
-
   const isLocalDemo = process.env.NODE_ENV !== 'production';
+
   const fillDemoAccount = (account: 'owner' | 'merchant') => {
     setUsername(account === 'owner' ? 'test_owner' : 'test_merchant');
     setPassword(account === 'owner' ? 'TestOwner!2026' : 'TestMerchant!2026');
     setError(null);
   };
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
 
     if (!username || !password) {
-      setError('يرجى ملء جميع الحقول المطلوبة');
+      setError('اكتب اسم المستخدم وكلمة المرور أولاً.');
       return;
     }
 
     startTransition(async () => {
-      const res = await loginMerchant(username, password);
-      if (res.success) {
-        if (res.role === 'super_admin') {
-          router.push('/admin');
-        } else {
-          router.push('/dashboard');
-        }
-      } else {
-        setError(res.error || 'حدث خطأ غير متوقع');
+      const result = await loginMerchant(username, password);
+      if (result.success) {
+        router.push(result.role === 'super_admin' ? '/admin' : '/dashboard');
+        return;
       }
+      setError(result.error || 'تعذر تسجيل الدخول الآن. تأكد من البيانات ثم حاول مرة أخرى.');
     });
   };
 
-  return (
-    <main className="min-h-screen w-full flex items-center justify-center bg-radial from-slate-900 via-zinc-950 to-black p-4 relative overflow-hidden">
-      {/* Dynamic Background Gradients */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl" />
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 rounded-full bg-violet-500/10 blur-3xl" />
+  return <main dir="rtl" className="min-h-dvh bg-[#07100d] px-4 py-5 text-zinc-100 sm:px-6 sm:py-8">
+    <div aria-hidden className="pointer-events-none fixed -right-32 top-8 h-80 w-80 rounded-full border border-emerald-400/10" />
+    <div aria-hidden className="pointer-events-none fixed -bottom-28 -left-20 h-96 w-96 rounded-full bg-emerald-400/5 blur-3xl" />
 
-      {/* Main Glassmorphic Login Card */}
-      <div className="w-full max-w-md bg-zinc-900/40 border border-zinc-800/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl relative z-10">
-        
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-500/25">
-            <ShieldCheck className="w-8 h-8 text-white" />
+    <div className="relative mx-auto grid min-h-[calc(100dvh-2.5rem)] max-w-5xl overflow-hidden rounded-3xl border border-zinc-800 bg-[#0a1511] shadow-[0_30px_90px_rgba(0,0,0,0.4)] lg:grid-cols-[0.92fr_1.08fr] sm:min-h-[calc(100dvh-4rem)]">
+      <section className="relative overflow-hidden border-b border-zinc-800 bg-[#0e211a] p-6 sm:p-10 lg:border-b-0 lg:border-l lg:border-zinc-800">
+        <div aria-hidden className="absolute -left-28 -top-20 h-72 w-72 rounded-full border-[24px] border-emerald-400/10" />
+        <div aria-hidden className="absolute -bottom-24 right-10 h-64 w-64 rounded-full bg-emerald-400/10 blur-3xl" />
+
+        <div className="relative flex h-full flex-col">
+          <Link href="/" className="inline-flex w-fit items-center gap-2 text-sm font-black text-zinc-200 transition-colors hover:text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300">
+            <ArrowRight className="h-4 w-4" />
+            العودة إلى الموقع
+          </Link>
+
+          <div className="my-auto py-10 lg:py-16">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-400 text-black shadow-[0_14px_35px_rgba(52,211,153,0.16)]">
+              <PackageCheck className="h-6 w-6" />
+            </div>
+            <h1 className="mt-7 text-4xl font-black leading-[1.15] tracking-[-0.035em] text-white sm:text-5xl">مرحباً بعودتك.</h1>
+            <p className="mt-4 max-w-sm text-sm font-semibold leading-7 text-zinc-300">سجّل الدخول للمتابعة من حيث توقفت: العملاء والطلبات والاشتراكات في مكان واحد.</p>
+
+            <div className="mt-9 space-y-4 border-t border-emerald-400/15 pt-6 text-sm font-bold text-zinc-200">
+              {[
+                'تابع الطلبات التي تحتاج تنفيذ الآن.',
+                'راجع التجديدات والمخزون قبل أن تتأثر المبيعات.',
+                'أدر فريقك وبوتك وبيانات متجرك من لوحة واحدة.',
+              ].map((item) => <p key={item} className="flex items-start gap-3"><span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-400/15 text-emerald-200"><Check className="h-3.5 w-3.5" /></span>{item}</p>)}
+            </div>
           </div>
-          <h1 className="text-2xl font-black text-white tracking-wide">Nazzemly — نظّملي</h1>
-          <p className="text-sm text-zinc-400 mt-2">سجّل الدخول للوصول إلى لوحة التحكم الخاصة بك</p>
+
+          <p className="text-xs font-bold text-emerald-100/70">Nazzemly | نظّملي</p>
         </div>
+      </section>
 
-        {/* Error Box */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-950/40 border border-red-900/60 text-red-300 text-xs font-semibold rounded-2xl text-right animate-shake">
-            ⚠️ {error}
-          </div>
-        )}
-
-        {isLocalDemo && (
-          <div className="mb-6 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-right">
-            <p className="text-xs font-bold text-emerald-200">بيانات اختبار محلية</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => fillDemoAccount('owner')} className="rounded-xl border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-100 transition-colors duration-150 hover:bg-emerald-500/10 active:scale-[0.98]">ملء بيانات المالك</button>
-              <button type="button" onClick={() => fillDemoAccount('merchant')} className="rounded-xl border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-100 transition-colors duration-150 hover:bg-emerald-500/10 active:scale-[0.98]">ملء بيانات التاجر</button>
+      <section className="flex items-center p-6 sm:p-10">
+        <div className="mx-auto w-full max-w-md">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <h2 className="text-3xl font-black tracking-[-0.03em] text-white">تسجيل الدخول</h2>
+              <p className="mt-2 text-sm font-semibold leading-6 text-zinc-400">اكتب بيانات حسابك للوصول إلى لوحة التحكم.</p>
             </div>
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-emerald-400/25 bg-emerald-400/10 text-emerald-200"><ShieldCheck className="h-5 w-5" /></span>
           </div>
-        )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5 text-right" dir="rtl">
-          <div>
-            <label className="block text-xs font-bold text-zinc-400 mb-2 mr-1">اسم المستخدم</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-500">
-                <User className="w-5 h-5" />
-              </span>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="أدخل اسم المستخدم"
-                disabled={isPending}
-                className="w-full pr-10 pl-4 py-3 bg-zinc-950/60 border border-zinc-800/80 rounded-2xl text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200"
-              />
+          {error ? <div role="alert" aria-live="polite" className="mt-7 flex items-start gap-3 rounded-2xl border border-rose-500/35 bg-rose-500/10 p-4 text-sm font-bold leading-6 text-rose-100"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" /><span>{error}</span></div> : null}
+
+          {isLocalDemo ? <div className="mt-7 rounded-2xl border border-emerald-400/20 bg-[#102018] p-4"><p className="text-sm font-black text-emerald-100">بيانات اختبار محلية</p><p className="mt-1 text-xs font-semibold leading-6 text-emerald-100/75">هذه الأزرار تظهر في بيئة التطوير فقط ولن تظهر للتجار في الموقع المنشور.</p><div className="mt-3 grid grid-cols-2 gap-3"><button type="button" onClick={() => fillDemoAccount('owner')} className="min-h-11 rounded-xl border border-emerald-400/25 px-3 text-xs font-black text-emerald-100 transition-colors hover:bg-emerald-400/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 active:scale-[0.98]">حساب المالك</button><button type="button" onClick={() => fillDemoAccount('merchant')} className="min-h-11 rounded-xl border border-emerald-400/25 px-3 text-xs font-black text-emerald-100 transition-colors hover:bg-emerald-400/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 active:scale-[0.98]">حساب تاجر</button></div></div> : null}
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label htmlFor="username" className="mb-2 block text-sm font-black text-zinc-200">اسم المستخدم</label>
+              <div className="relative"><User className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" /><input id="username" name="username" autoComplete="username" dir="ltr" value={username} onChange={(event) => setUsername(event.target.value)} disabled={isPending} placeholder="اسم المستخدم" className="min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 pr-12 text-sm font-bold text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60" /></div>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold text-zinc-400 mb-2 mr-1">كلمة المرور</label>
-            <div className="relative">
-              <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-500">
-                <KeyRound className="w-5 h-5" />
-              </span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="أدخل كلمة المرور"
-                disabled={isPending}
-                className="w-full pr-10 pl-4 py-3 bg-zinc-950/60 border border-zinc-800/80 rounded-2xl text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all duration-200"
-              />
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-black text-zinc-200">كلمة المرور</label>
+              <div className="relative"><KeyRound className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" /><input id="password" name="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="كلمة المرور" className="min-h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 pr-12 text-sm font-bold text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60" /></div>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={isPending}
-            className="w-full mt-2 py-3.5 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-indigo-500/20 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>جاري تسجيل الدخول...</span>
-              </>
-            ) : (
-              <span>تسجيل الدخول</span>
-            )}
-          </button>
-        </form>
+            <button type="submit" disabled={isPending} className="inline-flex min-h-13 w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 text-sm font-black text-black transition-colors hover:bg-emerald-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.99]">{isPending ? <><Loader2 className="h-5 w-5 animate-spin" />جارٍ تسجيل الدخول</> : <><LogIn className="h-5 w-5" />تسجيل الدخول</>}</button>
+          </form>
 
-        {/* Footer */}
-        <div className="text-center mt-8 text-xs text-zinc-600 font-semibold">
-          Nazzemly — نظّملي &copy; 2026
+          <div className="mt-8 border-t border-zinc-800 pt-6"><p className="text-sm font-semibold text-zinc-400">ليس لديك متجر بعد؟</p><Link href="/register" className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-sm font-black text-white transition-colors hover:border-emerald-400/60 hover:text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300"><UserPlus className="h-4 w-4" />أنشئ متجرًا مجانًا لمدة 14 يومًا</Link></div>
         </div>
-      </div>
-    </main>
-  );
+      </section>
+    </div>
+  </main>;
 }
