@@ -44,6 +44,7 @@ const restoreSectionLabels: Record<string, string> = {
   warranties: 'الضمانات والمشكلات',
   financials: 'المصروفات والإعلانات',
   support: 'تذاكر الدعم',
+  referral_wallet: 'محفظة الإحالة وطلبات السحب',
 };
 
 function csvCell(value: unknown) {
@@ -219,7 +220,7 @@ export async function exportMerchantCsv(dataSet: DataSet) {
 export async function exportMerchantBackup() {
   try {
     const { tenantId, storeName } = await getActiveTenant('dashboard');
-    const [tenant, contacts, paymentMethods, bot, categories, services, customers, subscriptions, interests, orders, accountPool, walletTransactions, paymentRequests, tasks, deals, activities, templates, notifications, warrantyCases, expenses, recurringExpenses, advertising, supportTickets] = await Promise.all([
+    const [tenant, contacts, paymentMethods, bot, categories, services, customers, subscriptions, interests, orders, accountPool, walletTransactions, paymentRequests, tasks, deals, activities, templates, notifications, warrantyCases, expenses, recurringExpenses, advertising, supportTickets, referralProgram] = await Promise.all([
       prisma.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { storeName: true, currency: true, timezone: true, locale: true, reminderDays: true, notifEmail: true, logoUrl: true, businessType: true, businessDescription: true, websiteUrl: true, onboardingStep: true, onboardingCompletedAt: true } }),
       prisma.tenantContact.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
       prisma.tenantPaymentMethod.findMany({ where: { tenantId }, orderBy: { sortOrder: 'asc' } }),
@@ -243,6 +244,7 @@ export async function exportMerchantBackup() {
       prisma.recurringExpense.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
       prisma.adCampaign.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }),
       prisma.supportTicket.findMany({ where: { tenantId }, include: { messages: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.referralProgram.findUnique({ where: { tenantId }, include: { walletEntries: true, payoutRequests: true, attributions: true } }),
     ]);
     const archive: MerchantRestoreBackup = {
       format: backupFormat,
@@ -268,6 +270,7 @@ export async function exportMerchantBackup() {
         warranties: warrantyCases,
         financials: [{ expenses, recurringExpenses, advertising }],
         support: supportTickets,
+        referral_wallet: referralProgram ? [referralProgram] : [],
       },
     };
     const safeStore = storeName.replace(/[^\p{L}\p{N}_-]+/gu, '-');
@@ -572,6 +575,21 @@ async function importMerchantRestoreBackup(input: { archive: MerchantRestoreBack
       }
     }
     if (tickets.length) record('support', tickets.length + tickets.flatMap((ticket) => Array.isArray(ticket.messages) ? ticket.messages : []).length, ticketsCreated + messagesCreated);
+
+    const referral = rows('referral_wallet')[0];
+    if (referral) {
+      const { walletEntries: sourceEntries, payoutRequests: sourcePayouts, attributions: _sourceAttributions, tenantId: _tenantId, id: _programId, ...programData } = referral;
+      const program = await tx.referralProgram.upsert({
+        where: { tenantId },
+        update: programData as any,
+        create: { ...programData, tenantId } as any,
+      });
+      const payouts = Array.isArray(sourcePayouts) ? sourcePayouts.map((row: Record<string, any>) => toTenantRow({ ...row, programId: program.id }, tenantId, ['processedById'])) : [];
+      if (payouts.length) await tx.referralPayoutRequest.createMany({ data: payouts as any, skipDuplicates: true });
+      const entries = Array.isArray(sourceEntries) ? sourceEntries.map((row: Record<string, any>) => toTenantRow({ ...row, programId: program.id }, tenantId, ['attributionId'])) : [];
+      if (entries.length) await tx.referralWalletTransaction.createMany({ data: entries as any, skipDuplicates: true });
+      record('referral_wallet', 1 + payouts.length + entries.length, 1 + payouts.length + entries.length);
+    }
   }, { isolationLevel: 'Serializable', timeout: 30000 });
 
   return results;

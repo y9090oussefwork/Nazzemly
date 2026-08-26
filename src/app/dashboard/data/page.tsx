@@ -18,7 +18,7 @@ const legacySectionLabels: Record<string, string> = {
 };
 
 const restoreSectionLabels: Record<string, string> = {
-  merchant_profile: 'بيانات المتجر', contacts: 'وسائل التواصل', payment_methods: 'طرق الدفع', bot_configuration: 'إعدادات البوت', categories: 'تصنيفات الخدمات', services: 'الخدمات والباقات', customers: 'العملاء', subscriptions: 'الاشتراكات', interests: 'طلبات الاهتمام بالخدمات', orders: 'الطلبات والتنفيذ', account_pool: 'المخزون والتسليم', wallet: 'محافظ العملاء وطلبات الشحن', customer_operations: 'المهام والصفقات وسجل العملاء', messages: 'القوالب والإشعارات', warranties: 'الضمانات والمشكلات', financials: 'البيانات المالية', support: 'تذاكر الدعم',
+  merchant_profile: 'بيانات المتجر', contacts: 'وسائل التواصل', payment_methods: 'طرق الدفع', bot_configuration: 'إعدادات البوت', categories: 'تصنيفات الخدمات', services: 'الخدمات والباقات', customers: 'العملاء', subscriptions: 'الاشتراكات', interests: 'طلبات الاهتمام بالخدمات', orders: 'الطلبات والتنفيذ', account_pool: 'المخزون والتسليم', wallet: 'محافظ العملاء وطلبات الشحن', customer_operations: 'المهام والصفقات وسجل العملاء', messages: 'القوالب والإشعارات', warranties: 'الضمانات والمشكلات', financials: 'البيانات المالية', support: 'تذاكر الدعم', referral_wallet: 'محفظة الإحالة وطلبات السحب',
 };
 
 function previewBackup(content: string): BackupPreview {
