@@ -225,6 +225,107 @@ export async function getCustomers(options?: { search?: string; page?: number; p
   }
 }
 
+export async function getCustomerProfile(customerIdInput: string) {
+  try {
+    const { tenantId } = await getActiveTenant('customers');
+    const customerId = cleanText(customerIdInput, 'معرّف العميل', 3, 64);
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, tenantId, deletedAt: null },
+      select: {
+        id: true, name: true, phone: true, email: true, company: true, stage: true, source: true,
+        tags: true, address: true, customFields: true, consentAt: true, lastContactAt: true,
+        tgId: true, tgUsername: true, walletBalance: true, notes: true, createdAt: true, updatedAt: true,
+        assignedTo: { select: { id: true, fullName: true, username: true } },
+      },
+    });
+    if (!customer) throw new Error('لم يتم العثور على العميل أو لا تملك صلاحية لعرضه.');
+
+    const [subscriptions, orders, walletTransactions, paymentRequests, activities, tasks, deals, warrantyCases, orderEvents] = await Promise.all([
+      prisma.subscription.findMany({
+        where: { tenantId, customerId }, orderBy: { endDate: 'desc' }, take: 250,
+        select: {
+          id: true, orderNo: true, package: true, startDate: true, endDate: true, sellingPrice: true,
+          priceBeforeDiscount: true, discountType: true, discountValue: true, discountAmount: true,
+          costPrice: true, status: true, notes: true, renewalStatus: true, renewalContactedAt: true,
+          renewalDueAt: true, createdAt: true, updatedAt: true,
+          service: { select: { id: true, name: true, icon: true } },
+          servicePlan: { select: { id: true, name: true, durationDays: true, warrantyType: true, warrantyDays: true } },
+        },
+      }),
+      prisma.order.findMany({
+        where: { tenantId, customerId }, orderBy: { createdAt: 'desc' }, take: 250,
+        select: {
+          id: true, orderNo: true, source: true, paymentStatus: true, fulfillmentStatus: true,
+          amount: true, costPrice: true, discountAmount: true, paymentFee: true, customerNote: true,
+          internalNote: true, priority: true, slaDueAt: true, serviceNameSnapshot: true, planNameSnapshot: true,
+          warrantyType: true, warrantyEndsAt: true, completedAt: true, cancelledAt: true, createdAt: true, updatedAt: true,
+          subscriptionId: true,
+          service: { select: { id: true, name: true, icon: true } },
+          servicePlan: { select: { id: true, name: true, durationDays: true } },
+          assignedTo: { select: { id: true, fullName: true, username: true } },
+        },
+      }),
+      prisma.walletTransaction.findMany({
+        where: { tenantId, customerId }, orderBy: { createdAt: 'desc' }, take: 250,
+        select: { id: true, amount: true, balanceAfter: true, type: true, description: true, metadata: true, createdAt: true, createdBy: { select: { id: true, fullName: true, username: true } } },
+      }),
+      prisma.paymentRequest.findMany({
+        where: { tenantId, customerId }, orderBy: { createdAt: 'desc' }, take: 150,
+        select: {
+          id: true, amount: true, fraction: true, senderIdentifier: true, method: true, screenshotUrl: true,
+          status: true, transactionId: true, reportedAmount: true, notes: true, processedAt: true, expiresAt: true,
+          createdAt: true, updatedAt: true,
+          approvedBy: { select: { id: true, fullName: true, username: true } },
+          paymentMethod: { select: { id: true, label: true, type: true } },
+        },
+      }),
+      prisma.customerActivity.findMany({
+        where: { tenantId, customerId }, orderBy: { createdAt: 'desc' }, take: 300,
+        select: { id: true, type: true, title: true, details: true, metadata: true, createdAt: true, user: { select: { id: true, fullName: true, username: true } } },
+      }),
+      prisma.task.findMany({
+        where: { tenantId, customerId }, orderBy: [{ status: 'asc' }, { dueAt: 'asc' }], take: 150,
+        select: { id: true, title: true, description: true, status: true, priority: true, dueAt: true, completedAt: true, createdAt: true, updatedAt: true, assignedTo: { select: { id: true, fullName: true, username: true } }, createdBy: { select: { id: true, fullName: true, username: true } } },
+      }),
+      prisma.deal.findMany({
+        where: { tenantId, customerId }, orderBy: { updatedAt: 'desc' }, take: 150,
+        select: { id: true, title: true, value: true, stage: true, probability: true, expectedCloseAt: true, notes: true, wonAt: true, lostAt: true, createdAt: true, updatedAt: true, owner: { select: { id: true, fullName: true, username: true } } },
+      }),
+      prisma.warrantyCase.findMany({
+        where: { tenantId, customerId }, orderBy: { openedAt: 'desc' }, take: 150,
+        select: { id: true, number: true, status: true, priority: true, problem: true, resolution: true, openedAt: true, resolvedAt: true, closedAt: true, createdAt: true, subscriptionId: true, orderId: true, assignedTo: { select: { id: true, fullName: true, username: true } } },
+      }),
+      prisma.orderEvent.findMany({
+        where: { tenantId, order: { customerId } }, orderBy: { createdAt: 'desc' }, take: 300,
+        select: { id: true, type: true, fromStatus: true, toStatus: true, message: true, isCustomerVisible: true, sentAt: true, createdAt: true, actor: { select: { id: true, fullName: true, username: true } }, order: { select: { orderNo: true, service: { select: { name: true } } } } },
+      }),
+    ]);
+
+    const timeline = [
+      ...activities.map((item) => ({ id: `activity-${item.id}`, type: 'activity', title: item.title, details: item.details, createdAt: item.createdAt, actor: item.user })),
+      ...orderEvents.map((item) => ({ id: `order-${item.id}`, type: 'order', title: item.message || `تحديث للطلب ${item.order.orderNo}`, details: `${item.order.service.name}${item.toStatus ? ` — الحالة: ${item.toStatus}` : ''}`, createdAt: item.createdAt, actor: item.actor })),
+      ...walletTransactions.map((item) => ({ id: `wallet-${item.id}`, type: 'wallet', title: `حركة محفظة: ${item.type}`, details: item.description || `قيمة الحركة ${money(item.amount).toFixed(2)}`, createdAt: item.createdAt, actor: item.createdBy })),
+      ...paymentRequests.map((item) => ({ id: `payment-${item.id}`, type: 'payment', title: `طلب شحن ${item.status}`, details: `${item.method} — ${money(item.amount).toFixed(2)}`, createdAt: item.createdAt, actor: item.approvedBy })),
+      ...warrantyCases.map((item) => ({ id: `warranty-${item.id}`, type: 'warranty', title: `بلاغ ضمان ${item.number}`, details: item.problem, createdAt: item.openedAt, actor: item.assignedTo })),
+    ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime()).slice(0, 500);
+
+    return {
+      success: true,
+      customer: customerDto(customer),
+      subscriptions: subscriptions.map(subscriptionDto),
+      orders: orders.map((item) => ({ ...item, amount: money(item.amount), costPrice: money(item.costPrice), discountAmount: money(item.discountAmount), paymentFee: money(item.paymentFee) })),
+      walletTransactions: walletTransactions.map((item) => ({ ...item, amount: money(item.amount), balanceAfter: item.balanceAfter === null ? null : money(item.balanceAfter) })),
+      paymentRequests: paymentRequests.map((item) => ({ ...item, amount: money(item.amount), fraction: money(item.fraction), reportedAmount: item.reportedAmount === null ? null : money(item.reportedAmount) })),
+      tasks,
+      deals: deals.map((item) => ({ ...item, value: money(item.value) })),
+      warrantyCases,
+      timeline,
+    };
+  } catch (error) {
+    return { success: false, error: errorMessage(error) };
+  }
+}
+
 export async function addCustomer(data: {
   name: string;
   phone: string;

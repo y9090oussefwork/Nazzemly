@@ -139,7 +139,7 @@ function OrderCard({ order, currency, refresh, notify }: {
         </div>
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-zinc-950 text-zinc-400"><UserRound className="h-5 w-5" /></span>
-          <div><Link prefetch={false} href={`/dashboard/customers?customerId=${order.customer.id}`} className="block font-bold transition-colors hover:text-emerald-300 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">{order.customer.name}</Link><span className="text-sm text-zinc-500">{order.customer.phone}</span></div>
+          <div><Link prefetch={false} href={`/dashboard/customers/${order.customer.id}`} className="block font-bold transition-colors hover:text-emerald-300 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">{order.customer.name}</Link><span className="text-sm text-zinc-500">{order.customer.phone}</span></div>
         </div>
         <a
           href={`https://wa.me/${customerWhatsApp}?text=${encodeURIComponent(`مرحبًا ${order.customer.name}، بخصوص طلبك ${order.orderNo} لخدمة ${order.service.name}`)}`}
