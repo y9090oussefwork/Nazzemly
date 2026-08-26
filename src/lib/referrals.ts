@@ -62,10 +62,38 @@ export async function attachReferralCode(
       referrerProgramId: program.id,
       referredTenantId: input.referredTenantId,
       commissionRate: program.commissionRate,
+      firstMonthDiscountAmount: settings.firstMonthDiscountAmount,
       status: 'active',
       activatedAt: new Date(),
     },
   });
+}
+
+/**
+ * Claims the welcome discount reserved for a referred merchant. It runs inside
+ * the renewal transaction, so a failed charge rolls the claim back as well.
+ */
+export async function claimReferralFirstPaymentDiscount(
+  tx: Database,
+  input: { tenantId: string; amount: Prisma.Decimal },
+) {
+  const attribution = await tx.referralAttribution.findUnique({
+    where: { referredTenantId: input.tenantId },
+    select: { id: true, status: true, firstMonthDiscountAmount: true, firstMonthDiscountAppliedAt: true },
+  });
+  if (!attribution || attribution.status !== 'active' || attribution.firstMonthDiscountAppliedAt) {
+    return new Prisma.Decimal(0);
+  }
+
+  const configuredDiscount = new Prisma.Decimal(attribution.firstMonthDiscountAmount);
+  if (configuredDiscount.lte(0) || input.amount.lte(0)) return new Prisma.Decimal(0);
+
+  const discount = Prisma.Decimal.min(configuredDiscount, input.amount).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  const claimed = await tx.referralAttribution.updateMany({
+    where: { id: attribution.id, firstMonthDiscountAppliedAt: null },
+    data: { firstMonthDiscountAppliedAt: new Date() },
+  });
+  return claimed.count === 1 ? discount : new Prisma.Decimal(0);
 }
 
 /**
@@ -87,6 +115,11 @@ export async function awardReferralCommissionForInvoice(
     select: { id: true },
   });
   if (existing) return null;
+
+  await tx.referralAttribution.updateMany({
+    where: { id: attribution.id, firstPaidAt: null },
+    data: { firstPaidAt: new Date() },
+  });
 
   const amount = new Prisma.Decimal(input.amount)
     .mul(attribution.commissionRate)

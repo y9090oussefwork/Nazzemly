@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from '@/lib/security';
 import { money, requirePositiveMoney } from '@/lib/money';
 import { cleanText, oneOf } from '@/lib/validation';
 import { writeAuditLog } from '@/lib/audit';
-import { awardReferralCommissionForInvoice } from '@/lib/referrals';
+import { awardReferralCommissionForInvoice, claimReferralFirstPaymentDiscount } from '@/lib/referrals';
 
 const PAYMENT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
 
@@ -43,9 +43,22 @@ export async function getSaaSBillingOverview() {
       autoRenewAvailable = false;
     }
 
+    let referralOffer = { isEligible: false, amount: 0 };
+    try {
+      const attribution = await prisma.referralAttribution.findUnique({
+        where: { referredTenantId: session.tenantId },
+        select: { firstMonthDiscountAmount: true, firstMonthDiscountAppliedAt: true },
+      });
+      if (attribution && !attribution.firstMonthDiscountAppliedAt && attribution.firstMonthDiscountAmount.gt(0)) {
+        referralOffer = { isEligible: true, amount: money(attribution.firstMonthDiscountAmount) };
+      }
+    } catch {
+      // The billing page remains available while an older deployment finishes its migration.
+    }
+
     return {
       success: true,
-      tenant: { ...tenant, saasBalance: money(tenant.saasBalance), autoRenew, autoRenewAvailable },
+      tenant: { ...tenant, saasBalance: money(tenant.saasBalance), autoRenew, autoRenewAvailable, referralOffer },
     };
   } catch (error) {
     console.error('getSaaSBillingOverview failed', error);
@@ -165,7 +178,9 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
         });
         if (!plan) throw new Error('الباقة غير متاحة حالياً');
 
-        const amount = months === 12 && plan.priceYearly ? plan.priceYearly : plan.priceMonthly.mul(months);
+        const listAmount = months === 12 && plan.priceYearly ? plan.priceYearly : plan.priceMonthly.mul(months);
+        const referralDiscount = await claimReferralFirstPaymentDiscount(tx, { tenantId: tenant.id, amount: listAmount });
+        const amount = listAmount.minus(referralDiscount);
 
         const charged = await tx.tenant.updateMany({
           where: { id: tenant.id, saasBalance: { gte: amount } },
@@ -235,7 +250,13 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
             status: 'paid',
             dueAt: now,
             paidAt: now,
-            metadata: { plan: plan.code, months, source: 'saas_balance' },
+            metadata: {
+              plan: plan.code,
+              months,
+              source: 'saas_balance',
+              listAmount: money(listAmount),
+              referralDiscount: money(referralDiscount),
+            },
           },
         });
         await awardReferralCommissionForInvoice(tx, {
@@ -255,7 +276,7 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
             maxCustomers: true,
           },
         });
-        return { tenant: updatedTenant, invoice, plan, months, amount };
+        return { tenant: updatedTenant, invoice, plan, months, amount, listAmount, referralDiscount };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -269,6 +290,8 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
       metadata: {
         plan: result.plan.code,
         amount: money(result.invoice.amount),
+        listAmount: money(result.listAmount),
+        referralDiscount: money(result.referralDiscount),
         months: result.months,
       },
     });
@@ -278,6 +301,7 @@ export async function renewSaaSPlan(input: { planCode?: string; months?: number 
       tenant: { ...result.tenant, saasBalance: money(result.tenant.saasBalance) },
       invoice: { ...result.invoice, amount: money(result.invoice.amount) },
       months: result.months,
+      referralDiscount: money(result.referralDiscount),
     };
   } catch (error) {
     console.error('renewSaaSPlan failed', error);

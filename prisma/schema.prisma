@@ -1016,6 +1016,7 @@ model ReferralSettings {
   id                    String   @id @default("default")
   isEnabled             Boolean  @default(true)
   defaultCommissionRate Decimal  @default(10.0) @db.Decimal(5, 2)
+  firstMonthDiscountAmount Decimal @default(0.0) @db.Decimal(18, 2)
   minimumPayout         Decimal  @default(100.0) @db.Decimal(18, 2)
   updatedAt             DateTime @default(now()) @updatedAt
 }
@@ -1046,9 +1047,12 @@ model ReferralAttribution {
   referrerProgramId String
   referredTenantId  String                      @unique
   commissionRate    Decimal                     @db.Decimal(5, 2)
+  firstMonthDiscountAmount Decimal              @default(0.0) @db.Decimal(18, 2)
   status            String                      @default("active")
   invitedAt         DateTime                    @default(now())
   activatedAt       DateTime?
+  firstPaidAt       DateTime?
+  firstMonthDiscountAppliedAt DateTime?
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @default(now()) @updatedAt
   referrerProgram   ReferralProgram             @relation(fields: [referrerProgramId], references: [id], onDelete: Cascade)

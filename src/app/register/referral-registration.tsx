@@ -1,21 +1,53 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Check, CircleAlert, Loader2, Store, Ticket } from 'lucide-react';
 import { registerMerchantFromReferral } from '@/app/actions/merchant-registration';
+
+const REFERRAL_STORAGE_KEY = 'nazzemly_referral_attribution_v1';
+const REFERRAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function normalizeReferralCode(value: string | null | undefined) {
+  const code = value?.trim().toUpperCase() || '';
+  return /^NZ-[A-Z0-9]{6,24}$/.test(code) ? code : '';
+}
 
 export default function ReferralRegistration({ referralCode }: { referralCode: string }) {
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState({ storeName: '', username: '', password: '', email: '', referralCode });
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  useEffect(() => {
+    const directCode = normalizeReferralCode(referralCode);
+    let rememberedCode = '';
+    try {
+      if (directCode) {
+        localStorage.setItem(REFERRAL_STORAGE_KEY, JSON.stringify({ code: directCode, expiresAt: Date.now() + REFERRAL_TTL_MS }));
+      } else {
+        const raw = localStorage.getItem(REFERRAL_STORAGE_KEY);
+        const saved = raw ? JSON.parse(raw) : null;
+        if (saved && typeof saved.code === 'string' && Number(saved.expiresAt) > Date.now()) rememberedCode = normalizeReferralCode(saved.code);
+        else localStorage.removeItem(REFERRAL_STORAGE_KEY);
+      }
+    } catch {
+      // Storage is only a convenience; server-side code still validates every referral.
+    }
+    const code = directCode || rememberedCode;
+    if (!code) return;
+    const timer = window.setTimeout(() => setForm((current) => ({ ...current, referralCode: code })), 0);
+    return () => window.clearTimeout(timer);
+  }, [referralCode]);
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setNotice(null);
     startTransition(async () => {
       const result = await registerMerchantFromReferral(form);
-      if (result.success) setNotice({ type: 'success', text: 'تم إنشاء متجرك التجريبي بنجاح. ابدأ الآن بتسجيل الدخول.' });
+      if (result.success) {
+        try { localStorage.removeItem(REFERRAL_STORAGE_KEY); } catch { /* no-op */ }
+        setNotice({ type: 'success', text: 'تم إنشاء متجرك التجريبي بنجاح. ابدأ الآن بتسجيل الدخول.' });
+      }
       else setNotice({ type: 'error', text: result.error || 'تعذر إنشاء المتجر. حاول مرة أخرى.' });
     });
   };
@@ -33,7 +65,7 @@ export default function ReferralRegistration({ referralCode }: { referralCode: s
               {['لا تحتاج إلى بطاقة أو دفع عند التسجيل', 'العملاء والاشتراكات والطلبات في مكان واحد', 'يمكنك إضافة بوت تيليجرام متى أردت'].map((item) => <li key={item} className="flex items-center gap-3"><span className="grid h-5 w-5 place-items-center rounded-full bg-zinc-950 text-emerald-300"><Check className="h-3.5 w-3.5" /></span>{item}</li>)}
             </ul>
           </div>
-          {referralCode ? <div className="rounded-2xl border border-emerald-950/20 bg-emerald-300/45 p-4"><div className="flex items-center gap-2 text-sm font-black"><Ticket className="h-4 w-4" />تم تطبيق دعوة صديق</div><p className="mt-1.5 text-xs font-bold leading-6 text-emerald-950/75">بعد أول تجديد مدفوع لك، يحصل صاحب الدعوة على عمولته وفق إعدادات المنصة.</p></div> : null}
+          {form.referralCode ? <div className="rounded-2xl border border-emerald-950/20 bg-emerald-300/45 p-4"><div className="flex items-center gap-2 text-sm font-black"><Ticket className="h-4 w-4" />تم حفظ دعوة صديق</div><p className="mt-1.5 text-xs font-bold leading-6 text-emerald-950/75">سيُطبّق رمز الإحالة تلقائياً عند إنشاء الحساب. خصم أول اشتراك مدفوع، إن كان متاحاً، تحدده إدارة المنصة.</p></div> : null}
         </div>
         <div aria-hidden className="absolute -bottom-24 -left-20 h-64 w-64 rounded-full border-[28px] border-emerald-300/50" />
       </aside>

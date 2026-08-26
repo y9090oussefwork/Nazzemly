@@ -3,10 +3,11 @@ import 'server-only';
 import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/prisma';
 import { money } from '@/lib/money';
-import { awardReferralCommissionForInvoice } from '@/lib/referrals';
+import { awardReferralCommissionForInvoice, claimReferralFirstPaymentDiscount } from '@/lib/referrals';
 
 const RENEWAL_WINDOW_DAYS = 2;
 const BILLING_MONTHS = [1, 3, 6, 12] as const;
+const AUTO_RENEW_INSUFFICIENT_BALANCE = 'AUTO_RENEW_INSUFFICIENT_BALANCE';
 
 function monthsBetween(start: Date, end: Date): number {
   const months = (end.getUTCFullYear() - start.getUTCFullYear()) * 12 + (end.getUTCMonth() - start.getUTCMonth());
@@ -71,13 +72,15 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
       continue;
     }
 
-    const amount = months === 12 && plan.priceYearly ? plan.priceYearly : plan.priceMonthly.mul(months);
+    const listAmount = months === 12 && plan.priceYearly ? plan.priceYearly : plan.priceMonthly.mul(months);
     const oldExpiry = candidate.saasExpiry;
     const periodStart = oldExpiry && oldExpiry > now ? oldExpiry : now;
     const periodEnd = addMonths(periodStart, months);
 
     try {
       const renewed = await prisma.$transaction(async (tx) => {
+        const referralDiscount = await claimReferralFirstPaymentDiscount(tx, { tenantId: candidate.id, amount: listAmount });
+        const amount = listAmount.minus(referralDiscount);
         const charged = await tx.tenant.updateMany({
           where: {
             id: candidate.id,
@@ -94,7 +97,7 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
             maxCustomers: plan.maxCustomers,
           },
         });
-        if (charged.count !== 1) return null;
+        if (charged.count !== 1) throw new Error(AUTO_RENEW_INSUFFICIENT_BALANCE);
 
         if (current) {
           await tx.platformSubscription.update({
@@ -129,7 +132,13 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
             status: 'paid',
             dueAt: now,
             paidAt: now,
-            metadata: { plan: plan.code, months, source: 'saas_auto_renewal' },
+            metadata: {
+              plan: plan.code,
+              months,
+              source: 'saas_auto_renewal',
+              listAmount: money(listAmount),
+              referralDiscount: money(referralDiscount),
+            },
           },
         });
         await awardReferralCommissionForInvoice(tx, {
@@ -138,17 +147,17 @@ export async function processSaaSAutoRenewals(limit = 250): Promise<SaaSAutoRene
           amount,
           currency: candidate.currency,
         });
-        return true;
+        return { amount };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-      if (renewed) {
-        results.push({ tenantId: candidate.id, status: 'renewed', plan: plan.code, months, amount: money(amount), expiresAt: periodEnd });
-        await createDailyNotification(candidate.id, 'saas_auto_renewed', 'تم تجديد اشتراك المتجر تلقائياً', `تم خصم ${money(amount).toFixed(2)} ${candidate.currency} وتجديد الاشتراك لمدة ${months} ${months === 1 ? 'شهر' : 'شهور'}.`, '/dashboard/billing');
-      } else {
-        results.push({ tenantId: candidate.id, status: 'insufficient_balance', plan: plan.code, months, amount: money(amount) });
-        await createDailyNotification(candidate.id, 'saas_auto_renew_failed', 'الرصيد غير كافٍ للتجديد التلقائي', `ينتهي اشتراكك قريباً. اشحن ${money(amount).toFixed(2)} ${candidate.currency} على الأقل ثم جرّب التجديد من صفحة الحساب والفوترة.`, '/dashboard/billing');
-      }
+      results.push({ tenantId: candidate.id, status: 'renewed', plan: plan.code, months, amount: money(renewed.amount), expiresAt: periodEnd });
+      await createDailyNotification(candidate.id, 'saas_auto_renewed', 'تم تجديد اشتراك المتجر تلقائياً', `تم خصم ${money(renewed.amount).toFixed(2)} ${candidate.currency} وتجديد الاشتراك لمدة ${months} ${months === 1 ? 'شهر' : 'شهور'}.`, '/dashboard/billing');
     } catch (error) {
+      if (error instanceof Error && error.message === AUTO_RENEW_INSUFFICIENT_BALANCE) {
+        results.push({ tenantId: candidate.id, status: 'insufficient_balance', plan: plan.code, months, amount: money(listAmount) });
+        await createDailyNotification(candidate.id, 'saas_auto_renew_failed', 'الرصيد غير كافٍ للتجديد التلقائي', `ينتهي اشتراكك قريباً. اشحن ${money(listAmount).toFixed(2)} ${candidate.currency} على الأقل ثم جرّب التجديد من صفحة الحساب والفوترة.`, '/dashboard/billing');
+        continue;
+      }
       console.error('SaaS auto-renewal failed', { tenantId: candidate.id, error });
       results.push({ tenantId: candidate.id, status: 'skipped', reason: 'transaction_failed' });
     }

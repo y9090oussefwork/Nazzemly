@@ -10,7 +10,6 @@ import { ensureReferralProgram } from '@/lib/referrals';
 import { writeAuditLog } from '@/lib/audit';
 
 const PAYOUT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
-const PAYOUT_STATUSES = ['pending', 'paid', 'rejected'] as const;
 
 function safeError(error: unknown, fallback: string) {
   console.error(fallback, error);
@@ -35,7 +34,10 @@ export async function getMyReferralCenter() {
           id: true,
           status: true,
           commissionRate: true,
+          firstMonthDiscountAmount: true,
           activatedAt: true,
+          firstPaidAt: true,
+          firstMonthDiscountAppliedAt: true,
           createdAt: true,
           referredTenant: { select: { storeName: true, slug: true, saasStatus: true, saasPlan: true, saasExpiry: true } },
         },
@@ -55,13 +57,19 @@ export async function getMyReferralCenter() {
         take: 100,
       }),
     ]);
-    const baseUrl = process.env.APP_BASE_URL?.replace(/\/$/, '') || '';
+    const baseUrl = process.env.APP_BASE_URL?.trim().replace(/\/$/, '') || '';
+    const registrationPath = `/register?ref=${encodeURIComponent(program.code)}`;
     return {
       success: true,
-      settings: { enabled: settings.isEnabled, minimumPayout: money(settings.minimumPayout) },
+      settings: {
+        enabled: settings.isEnabled,
+        minimumPayout: money(settings.minimumPayout),
+        firstMonthDiscountAmount: money(settings.firstMonthDiscountAmount),
+      },
       program: {
         code: program.code,
-        link: `${baseUrl}/register?ref=${encodeURIComponent(program.code)}`,
+        link: baseUrl ? `${baseUrl}${registrationPath}` : registrationPath,
+        registrationPath,
         isActive: program.isActive,
         commissionRate: money(program.commissionRate),
         availableBalance: money(program.availableBalance),
@@ -70,7 +78,11 @@ export async function getMyReferralCenter() {
         totalRedeemed: money(program.totalRedeemed),
         totalPaidOut: money(program.totalPaidOut),
       },
-      referrals: referrals.map((item) => ({ ...item, commissionRate: money(item.commissionRate) })),
+      referrals: referrals.map((item) => ({
+        ...item,
+        commissionRate: money(item.commissionRate),
+        firstMonthDiscountAmount: money(item.firstMonthDiscountAmount),
+      })),
       entries: entries.map(serializeEntry),
       payoutRequests: payoutRequests.map((item) => ({ ...item, amount: money(item.amount) })),
     };
@@ -181,7 +193,12 @@ export async function getReferralAdminOverview() {
     ]);
     return {
       success: true,
-      settings: { enabled: settings.isEnabled, rate: money(settings.defaultCommissionRate), minimumPayout: money(settings.minimumPayout) },
+      settings: {
+        enabled: settings.isEnabled,
+        rate: money(settings.defaultCommissionRate),
+        minimumPayout: money(settings.minimumPayout),
+        firstMonthDiscountAmount: money(settings.firstMonthDiscountAmount),
+      },
       totals: { commissions: money(totals._sum.amount), referrals: programs.reduce((total, item) => total + item._count.attributions, 0), pendingPayouts: payoutRequests.reduce((total, item) => total + money(item.amount), 0) },
       programs: programs.map((item) => ({ ...item, commissionRate: money(item.commissionRate), availableBalance: money(item.availableBalance), pendingBalance: money(item.pendingBalance), totalEarned: money(item.totalEarned), totalRedeemed: money(item.totalRedeemed), totalPaidOut: money(item.totalPaidOut) })),
       payoutRequests: payoutRequests.map((item) => ({ ...item, amount: money(item.amount) })),
@@ -191,19 +208,20 @@ export async function getReferralAdminOverview() {
   }
 }
 
-export async function updateReferralSettings(input: { enabled: boolean; rate: number; minimumPayout: number }) {
+export async function updateReferralSettings(input: { enabled: boolean; rate: number; minimumPayout: number; firstMonthDiscountAmount: number }) {
   try {
     const owner = await requireSuperAdmin();
     const rate = new Prisma.Decimal(Math.min(100, Math.max(0, Number(input.rate) || 0)).toFixed(2));
     const minimumPayout = new Prisma.Decimal(requirePositiveMoney(input.minimumPayout, 'الحد الأدنى للسحب'));
+    const firstMonthDiscountAmount = new Prisma.Decimal(Math.max(0, Number(input.firstMonthDiscountAmount) || 0).toFixed(2));
     const settings = await prisma.referralSettings.upsert({
       where: { id: 'default' },
-      update: { isEnabled: input.enabled === true, defaultCommissionRate: rate, minimumPayout },
-      create: { id: 'default', isEnabled: input.enabled === true, defaultCommissionRate: rate, minimumPayout },
+      update: { isEnabled: input.enabled === true, defaultCommissionRate: rate, minimumPayout, firstMonthDiscountAmount },
+      create: { id: 'default', isEnabled: input.enabled === true, defaultCommissionRate: rate, minimumPayout, firstMonthDiscountAmount },
     });
-    await writeAuditLog({ userId: owner.userId, action: 'referral.settings_updated', entityType: 'ReferralSettings', entityId: settings.id, metadata: { enabled: settings.isEnabled, rate: money(rate), minimumPayout: money(minimumPayout) } });
+    await writeAuditLog({ userId: owner.userId, action: 'referral.settings_updated', entityType: 'ReferralSettings', entityId: settings.id, metadata: { enabled: settings.isEnabled, rate: money(rate), minimumPayout: money(minimumPayout), firstMonthDiscountAmount: money(firstMonthDiscountAmount) } });
     revalidatePath('/admin');
-    return { success: true, settings: { enabled: settings.isEnabled, rate: money(settings.defaultCommissionRate), minimumPayout: money(settings.minimumPayout) } };
+    return { success: true, settings: { enabled: settings.isEnabled, rate: money(settings.defaultCommissionRate), minimumPayout: money(settings.minimumPayout), firstMonthDiscountAmount: money(settings.firstMonthDiscountAmount) } };
   } catch (error) {
     return { success: false, error: safeError(error, 'تعذر تحديث إعدادات الإحالة') };
   }

@@ -30,7 +30,7 @@ type MarketingPlan = {
   features: string[];
 };
 
-async function getMarketingData(): Promise<{ plans: MarketingPlan[]; referralEnabled: boolean; referralRate: number | null }> {
+async function getMarketingData(): Promise<{ plans: MarketingPlan[]; referralEnabled: boolean; referralRate: number | null; referralDiscount: number | null }> {
   try {
     const [plans, referralSettings] = await Promise.all([
       prisma.plan.findMany({
@@ -38,15 +38,16 @@ async function getMarketingData(): Promise<{ plans: MarketingPlan[]; referralEna
         orderBy: { priceMonthly: 'asc' },
         select: { code: true, name: true, priceMonthly: true, priceYearly: true, maxUsers: true, maxCustomers: true, maxMessages: true, features: true },
       }),
-      prisma.referralSettings.findUnique({ where: { id: 'default' }, select: { isEnabled: true, defaultCommissionRate: true } }),
+      prisma.referralSettings.findUnique({ where: { id: 'default' }, select: { isEnabled: true, defaultCommissionRate: true, firstMonthDiscountAmount: true } }),
     ]);
     return {
       plans: plans.map((plan) => ({ ...plan, priceMonthly: Number(plan.priceMonthly), priceYearly: plan.priceYearly ? Number(plan.priceYearly) : null })),
       referralEnabled: referralSettings?.isEnabled === true,
       referralRate: referralSettings?.isEnabled ? Number(referralSettings.defaultCommissionRate) : null,
+      referralDiscount: referralSettings?.isEnabled ? Number(referralSettings.firstMonthDiscountAmount) : null,
     };
   } catch {
-    return { plans: [], referralEnabled: false, referralRate: null };
+    return { plans: [], referralEnabled: false, referralRate: null, referralDiscount: null };
   }
 }
 
@@ -55,7 +56,7 @@ function money(value: number) {
 }
 
 export default async function Home() {
-  const { plans, referralEnabled, referralRate } = await getMarketingData();
+  const { plans, referralEnabled, referralRate, referralDiscount } = await getMarketingData();
 
   return <main dir="rtl" className="min-h-dvh overflow-hidden bg-[#07100d] text-zinc-100">
     <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-10">
@@ -128,7 +129,7 @@ export default async function Home() {
         </div>}
       </div></section>
 
-    <section id="referral" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28 lg:px-10"><div className="rounded-3xl border border-emerald-400/25 bg-[#10251d] p-7 sm:p-10 lg:p-14"><div className="grid gap-10 lg:grid-cols-[1fr_1fr]"><div><h2 className="text-3xl font-black tracking-[-0.035em] text-white sm:text-5xl">كبر متجرك، وخذ مكافأة على الدعوات الحقيقية.</h2><p className="mt-5 max-w-xl text-base font-semibold leading-8 text-zinc-300">لكل تاجر رابط إحالة خاص. عندما ينشئ صديقك متجره من الرابط ثم يجدّد اشتراكه، تُضاف عمولتك إلى محفظة الإحالة ويمكنك استخدامها في تجديد اشتراكك أو طلب سحبها.</p><div className="mt-7 inline-flex items-center gap-3 rounded-xl border border-emerald-400/25 bg-zinc-950/35 px-4 py-3"><UsersRound className="h-5 w-5 text-emerald-300" /><span className="text-sm font-black text-white">{referralEnabled && referralRate !== null ? `العمولة الافتراضية الحالية: ${money(referralRate)}%` : 'العمولة تُدار من إعدادات المنصة'}</span></div></div><ol className="space-y-4">{[['شارك رابطك', 'من تبويب نظام الإحالة داخل حسابك.'], ['ينشئ صديقك متجره', 'يبدأ هو أيضاً بتجربة مجانية لمدة 14 يوماً.'], ['تُسجل عمولتك عند التجديد', 'عند دفع فاتورة التجديد، تظهر العمولة في محفظة الإحالة.']].map(([title, copy]) => <li key={title} className="rounded-2xl border border-emerald-400/15 bg-zinc-950/30 p-5"><h3 className="text-base font-black text-white">{title}</h3><p className="mt-2 text-sm font-semibold leading-7 text-zinc-400">{copy}</p></li>)}</ol></div></div></section>
+    <section id="referral" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28 lg:px-10"><div className="rounded-3xl border border-emerald-400/25 bg-[#10251d] p-7 sm:p-10 lg:p-14"><div className="grid gap-10 lg:grid-cols-[1fr_1fr]"><div><h2 className="text-3xl font-black tracking-[-0.035em] text-white sm:text-5xl">كبر متجرك، وخذ مكافأة على الدعوات الحقيقية.</h2><p className="mt-5 max-w-xl text-base font-semibold leading-8 text-zinc-300">لكل تاجر رابط إحالة خاص. عندما ينشئ صديقك متجره من الرابط ثم يجدّد اشتراكه، تُضاف عمولتك إلى محفظة الإحالة ويمكنك استخدامها في تجديد اشتراكك أو طلب سحبها.</p><div className="mt-7 flex flex-wrap gap-3"><div className="inline-flex items-center gap-3 rounded-xl border border-emerald-400/25 bg-zinc-950/35 px-4 py-3"><UsersRound className="h-5 w-5 text-emerald-300" /><span className="text-sm font-black text-white">{referralEnabled && referralRate !== null ? `العمولة الافتراضية الحالية: ${money(referralRate)}%` : 'العمولة تُدار من إعدادات المنصة'}</span></div>{referralEnabled && referralDiscount && referralDiscount > 0 ? <div className="inline-flex items-center gap-3 rounded-xl border border-emerald-400/25 bg-zinc-950/35 px-4 py-3"><CreditCard className="h-5 w-5 text-emerald-300" /><span className="text-sm font-black text-white">خصم للمدعو: {money(referralDiscount)} ج.م من أول اشتراك مدفوع</span></div> : null}</div></div><ol className="space-y-4">{[['شارك رابطك', 'من تبويب نظام الإحالة داخل حسابك.'], ['ينشئ صديقك متجره', 'يبدأ هو أيضاً بتجربة مجانية لمدة 14 يوماً، ويحفظ النظام رمز الإحالة تلقائياً حتى التسجيل.'], ['تُسجل العمولة عند الدفع', 'يُطبق خصم المدعو مرة واحدة على أول فاتورة مدفوعة، ثم تظهر عمولتك في محفظة الإحالة.']].map(([title, copy]) => <li key={title} className="rounded-2xl border border-emerald-400/15 bg-zinc-950/30 p-5"><h3 className="text-base font-black text-white">{title}</h3><p className="mt-2 text-sm font-semibold leading-7 text-zinc-400">{copy}</p></li>)}</ol></div></div></section>
 
     <section id="faq" className="border-t border-zinc-800 py-20 sm:py-28"><div className="mx-auto grid max-w-7xl gap-10 px-5 sm:px-8 lg:grid-cols-[0.7fr_1.3fr] lg:px-10"><div><CircleHelp className="h-7 w-7 text-emerald-300" /><h2 className="mt-6 text-3xl font-black tracking-[-0.035em] text-white sm:text-5xl">أسئلة سريعة قبل أن تبدأ.</h2><p className="mt-5 text-base font-semibold leading-8 text-zinc-400">إذا احتجت مساعدة بعد إنشاء الحساب، ستجد مركز الدعم داخل لوحة متجرك.</p></div><div className="divide-y divide-zinc-800 border-y border-zinc-800">{[['هل أحتاج إلى الدفع لإنشاء الحساب؟', 'لا. تبدأ بتجربة مجانية لمدة 14 يوماً دون بطاقة أو دفع عند التسجيل. بعد ذلك تجدّد باقتك من رصيد محفظة المنصة.'], ['هل أستطيع التسجيل من دون رمز إحالة؟', 'نعم. رمز الإحالة اختياري، لكنه يربط حسابك بصاحب الدعوة إن سجلت من خلاله.'], ['كيف يحصل التاجر على عمولة الإحالة؟', 'تُحتسب العمولة عند دفع التاجر المدعو لفاتورة تجديد اشتراك المنصة، وليس عند التسجيل المجاني.'], ['هل البوت إلزامي لتشغيل المتجر؟', 'لا. يمكنك إدارة المنصة كاملة من لوحة التحكم، ثم ربط بوت تيليجرام عندما تحتاجه.']].map(([question, answer]) => <details key={question} className="group py-5"><summary className="flex cursor-pointer list-none items-center justify-between gap-5 text-base font-black text-white"><span>{question}</span><ChevronLeft className="h-5 w-5 shrink-0 text-emerald-300 transition-transform group-open:-rotate-90" /></summary><p className="max-w-2xl pt-3 text-sm font-semibold leading-7 text-zinc-400">{answer}</p></details>)}</div></div></section>
 

@@ -48,7 +48,7 @@ export default function SuperAdminPage() {
   const [merchants, setMerchants] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [referrals, setReferrals] = useState<any>(null);
-  const [referralForm, setReferralForm] = useState({ enabled: true, rate: 10, minimumPayout: 100 });
+  const [referralForm, setReferralForm] = useState({ enabled: true, rate: 10, minimumPayout: 100, firstMonthDiscountAmount: 0 });
 
   // Modal states
   const [modalType, setModalType] = useState<'create' | 'edit' | null>(null);
@@ -91,7 +91,7 @@ export default function SuperAdminPage() {
       const referralRes = await getReferralAdminOverview();
       if (referralRes.success && referralRes.settings) {
         setReferrals(referralRes);
-        setReferralForm({ enabled: referralRes.settings.enabled, rate: referralRes.settings.rate, minimumPayout: referralRes.settings.minimumPayout });
+        setReferralForm({ enabled: referralRes.settings.enabled, rate: referralRes.settings.rate, minimumPayout: referralRes.settings.minimumPayout, firstMonthDiscountAmount: referralRes.settings.firstMonthDiscountAmount || 0 });
       }
     } catch (e) {
       console.error('Error loading super admin data:', e);
@@ -164,7 +164,7 @@ export default function SuperAdminPage() {
     event.preventDefault();
     startTransition(async () => {
       const result = await updateReferralSettings(referralForm);
-      if (result.success) { alert('تم حفظ إعدادات الإحالة الجديدة. تطبق على برامج الإحالة التي تُنشأ لاحقًا.'); await refreshAllData(); }
+      if (result.success) { alert('تم حفظ إعدادات الإحالة. تطبق النسبة على برامج الإحالة الجديدة، ويُحجز خصم التسجيل للتجار الذين يسجلون لاحقاً فقط.'); await refreshAllData(); }
       else alert(result.error || 'تعذر حفظ إعدادات الإحالة');
     });
   };
@@ -497,9 +497,10 @@ export default function SuperAdminPage() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <form onSubmit={handleSaveReferralSettings} className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-5 lg:col-span-1">
                   <h2 className="flex items-center gap-2 text-sm font-black text-white"><HandCoins className="h-5 w-5 text-emerald-300" />إعدادات برنامج الإحالة</h2>
-                  <p className="mt-2 text-xs leading-6 text-zinc-300">النسبة الجديدة تستخدم مع برامج الإحالة الجديدة، وتحافظ البرامج القائمة على نسبتها المسجلة لضمان العدالة.</p>
+                  <p className="mt-2 text-xs leading-6 text-zinc-300">العمولة تُحجز للتاجر عند إنشاء رابط الإحالة. وخصم التسجيل يُحجز للمدعو عند التسجيل، لذلك لا تتأثر حقوق التجار المسجلين سابقاً عند تغيير الإعدادات.</p>
                   <label className="mt-4 flex items-center gap-2 text-xs font-bold text-zinc-200"><input type="checkbox" checked={referralForm.enabled} onChange={(event) => setReferralForm({ ...referralForm, enabled: event.target.checked })} className="h-4 w-4 accent-emerald-500" />تشغيل الإحالات</label>
                   <label className="mt-4 block text-xs font-bold text-zinc-300">نسبة العمولة الافتراضية<input type="number" min="0" max="100" step="0.01" value={referralForm.rate} onChange={(event) => setReferralForm({ ...referralForm, rate: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /></label>
+                  <label className="mt-4 block text-xs font-bold text-zinc-300">خصم أول اشتراك مدفوع للمدعو (EGP)<input type="number" min="0" step="0.01" value={referralForm.firstMonthDiscountAmount} onChange={(event) => setReferralForm({ ...referralForm, firstMonthDiscountAmount: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /><span className="mt-1 block text-[10px] font-semibold leading-5 text-zinc-500">اكتب 0 لإيقاف الخصم. يُخصم مرة واحدة من أول فاتورة مدفوعة فقط، ولا يغيّر نسبة عمولة المُحيل.</span></label>
                   <label className="mt-4 block text-xs font-bold text-zinc-300">الحد الأدنى للسحب (EGP)<input type="number" min="1" step="0.01" value={referralForm.minimumPayout} onChange={(event) => setReferralForm({ ...referralForm, minimumPayout: Number(event.target.value) })} className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /></label>
                   <button disabled={isPending} className="mt-5 min-h-11 w-full rounded-xl bg-emerald-500 px-4 text-sm font-black text-zinc-950 disabled:opacity-60">حفظ إعدادات الإحالة</button>
                 </form>
