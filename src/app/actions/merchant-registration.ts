@@ -22,12 +22,12 @@ async function uniqueSlug(storeName: string) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
-export async function registerMerchantFromReferral(input: { storeName: string; username: string; password: string; email?: string; referralCode: string }) {
+export async function registerMerchantFromReferral(input: { storeName: string; username: string; password: string; email?: string; referralCode?: string }) {
   try {
     const storeName = cleanText(input.storeName, 'اسم النشاط', 2, 100);
     const username = normalizeUsername(input.username);
     const password = cleanText(input.password, 'كلمة المرور', 10, 200);
-    const referralCode = cleanText(input.referralCode, 'رمز الإحالة', 4, 32).toUpperCase();
+    const referralCode = optionalText(input.referralCode, 32)?.toUpperCase() || null;
     if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) throw new Error('كلمة المرور يجب أن تحتوي على حروف وأرقام');
     if (await prisma.user.findUnique({ where: { username }, select: { id: true } })) throw new Error('اسم المستخدم مستخدم بالفعل');
     const plan = await prisma.plan.findFirst({ where: { code: 'basic', isActive: true } }) || await prisma.plan.findFirst({ where: { isActive: true }, orderBy: { priceMonthly: 'asc' } });
@@ -49,7 +49,7 @@ export async function registerMerchantFromReferral(input: { storeName: string; u
       await attachReferralCode(tx, { referredTenantId: tenant.id, code: referralCode });
       return { tenant, user };
     });
-    await writeAuditLog({ tenantId: result.tenant.id, userId: result.user.id, action: 'tenant.registered_from_referral', entityType: 'Tenant', entityId: result.tenant.id, metadata: { referralCode } });
+    await writeAuditLog({ tenantId: result.tenant.id, userId: result.user.id, action: referralCode ? 'tenant.registered_from_referral' : 'tenant.self_registered', entityType: 'Tenant', entityId: result.tenant.id, metadata: { referralCode } });
     return { success: true };
   } catch (error) {
     console.error('merchant referral registration failed', error);
