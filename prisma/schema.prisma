@@ -26,6 +26,7 @@ model Tenant {
   saasPlan              String                 @default("free_trial")
   saasStatus            String                 @default("active")
   saasExpiry            DateTime?
+  autoRenew             Boolean                @default(false)
   maxUsers              Int                    @default(3)
   maxCustomers          Int                    @default(500)
   createdAt             DateTime               @default(now())
@@ -143,39 +144,39 @@ model TenantPaymentMethod {
 }
 
 model User {
-  id                   String               @id @default(cuid())
-  tenantId             String
-  username             String               @unique
-  email                String?
-  fullName             String?
-  password             String
-  role                 String               @default("user")
-  permissions          String[]
-  isActive             Boolean              @default(true)
-  failedLoginAttempts  Int                  @default(0)
-  lockedUntil          DateTime?
-  lastLoginAt          DateTime?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @default(now()) @updatedAt
-  tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions             Session[]
-  assignedCustomers    Customer[]           @relation("CustomerAssignee")
-  assignedTasks        Task[]               @relation("TaskAssignee")
-  createdTasks         Task[]               @relation("TaskCreator")
-  ownedDeals           Deal[]               @relation("DealOwner")
-  activities           CustomerActivity[]
-  walletTransactions   WalletTransaction[]
-  approvedPayments     PaymentRequest[]     @relation("PaymentApprover")
-  approvedSaaSPayments SaaSPaymentRequest[] @relation("SaaSPaymentApprover")
-  auditLogs            AuditLog[]
-  apiKeys              ApiKey[]
-  supportTickets       SupportTicket[]      @relation("SupportTicketCreator")
-  supportMessages      SupportMessage[]     @relation("SupportMessageAuthor")
-  assignedOrders       Order[]              @relation("OrderAssignee")
-  orderEvents          OrderEvent[]         @relation("OrderEventActor")
-  assignedWarrantyCases WarrantyCase[]      @relation("WarrantyAssignee")
-  warrantyEvents       WarrantyEvent[]      @relation("WarrantyActor")
-  notifications        Notification[]       @relation("NotificationRecipient")
+  id                    String               @id @default(cuid())
+  tenantId              String
+  username              String               @unique
+  email                 String?
+  fullName              String?
+  password              String
+  role                  String               @default("user")
+  permissions           String[]
+  isActive              Boolean              @default(true)
+  failedLoginAttempts   Int                  @default(0)
+  lockedUntil           DateTime?
+  lastLoginAt           DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @default(now()) @updatedAt
+  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions              Session[]
+  assignedCustomers     Customer[]           @relation("CustomerAssignee")
+  assignedTasks         Task[]               @relation("TaskAssignee")
+  createdTasks          Task[]               @relation("TaskCreator")
+  ownedDeals            Deal[]               @relation("DealOwner")
+  activities            CustomerActivity[]
+  walletTransactions    WalletTransaction[]
+  approvedPayments      PaymentRequest[]     @relation("PaymentApprover")
+  approvedSaaSPayments  SaaSPaymentRequest[] @relation("SaaSPaymentApprover")
+  auditLogs             AuditLog[]
+  apiKeys               ApiKey[]
+  supportTickets        SupportTicket[]      @relation("SupportTicketCreator")
+  supportMessages       SupportMessage[]     @relation("SupportMessageAuthor")
+  assignedOrders        Order[]              @relation("OrderAssignee")
+  orderEvents           OrderEvent[]         @relation("OrderEventActor")
+  assignedWarrantyCases WarrantyCase[]       @relation("WarrantyAssignee")
+  warrantyEvents        WarrantyEvent[]      @relation("WarrantyActor")
+  notifications         Notification[]       @relation("NotificationRecipient")
 
   @@index([tenantId, isActive])
 }
@@ -199,40 +200,40 @@ model Session {
 }
 
 model Customer {
-  id                 String              @id @default(cuid())
-  tenantId           String
-  assignedToId       String?
-  name               String
-  phone              String
-  email              String?
-  company            String?
-  stage              String              @default("lead")
-  source             String?
-  tags               String[]            @default([])
-  address            String?
-  customFields       Json?
-  consentAt          DateTime?
-  lastContactAt      DateTime?
-  tgId               String?
-  tgUsername         String?
-  walletBalance      Decimal             @default(0.0) @db.Decimal(18, 2)
-  notes              String?
-  createdBy          String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
-  deletedAt          DateTime?
-  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignedTo         User?               @relation("CustomerAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  subscriptions      Subscription[]
-  walletTransactions WalletTransaction[]
-  paymentRequests    PaymentRequest[]
-  tasks              Task[]
-  deals              Deal[]
-  activities         CustomerActivity[]
-  serviceInterests   ServiceInterest[]
-  orders             Order[]
+  id                  String               @id @default(cuid())
+  tenantId            String
+  assignedToId        String?
+  name                String
+  phone               String
+  email               String?
+  company             String?
+  stage               String               @default("lead")
+  source              String?
+  tags                String[]             @default([])
+  address             String?
+  customFields        Json?
+  consentAt           DateTime?
+  lastContactAt       DateTime?
+  tgId                String?
+  tgUsername          String?
+  walletBalance       Decimal              @default(0.0) @db.Decimal(18, 2)
+  notes               String?
+  createdBy           String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @default(now()) @updatedAt
+  deletedAt           DateTime?
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo          User?                @relation("CustomerAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  subscriptions       Subscription[]
+  walletTransactions  WalletTransaction[]
+  paymentRequests     PaymentRequest[]
+  tasks               Task[]
+  deals               Deal[]
+  activities          CustomerActivity[]
+  serviceInterests    ServiceInterest[]
+  orders              Order[]
   deliveryAllocations DeliveryAllocation[]
-  botFlowSessions    BotFlowSession[]
+  botFlowSessions     BotFlowSession[]
   warrantyCases       WarrantyCase[]
 
   @@unique([tenantId, phone])
@@ -334,35 +335,35 @@ model ServiceCategory {
 }
 
 model ServicePlan {
-  id             String            @id @default(cuid())
-  tenantId       String
-  serviceId      String
-  name           String
-  durationDays   Int
-  price          Decimal           @db.Decimal(18, 2)
-  costPrice      Decimal           @default(0.0) @db.Decimal(18, 2)
-  trackInventory Boolean           @default(false)
-  stockQuantity  Int               @default(0)
-  showInBot      Boolean           @default(true)
-  isActive       Boolean           @default(true)
-  sortOrder      Int               @default(0)
-  fulfillmentMode       String     @default("manual_contact")
+  id                     String            @id @default(cuid())
+  tenantId               String
+  serviceId              String
+  name                   String
+  durationDays           Int
+  price                  Decimal           @db.Decimal(18, 2)
+  costPrice              Decimal           @default(0.0) @db.Decimal(18, 2)
+  trackInventory         Boolean           @default(false)
+  stockQuantity          Int               @default(0)
+  showInBot              Boolean           @default(true)
+  isActive               Boolean           @default(true)
+  sortOrder              Int               @default(0)
+  fulfillmentMode        String            @default("manual_contact")
   requiredCustomerFields Json?
   statusTemplates        Json?
   purchaseMessage        String?
-  warrantyType           String     @default("none")
+  warrantyType           String            @default("none")
   warrantyDays           Int?
   slaMinutes             Int?
-  graceDays              Int        @default(0)
-  renewalPricePolicy     String     @default("current")
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @default(now()) @updatedAt
-  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  service        Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  subscriptions  Subscription[]
-  interests      ServiceInterest[]
-  accountPool    AccountPool[]
-  orders         Order[]
+  graceDays              Int               @default(0)
+  renewalPricePolicy     String            @default("current")
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @default(now()) @updatedAt
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  service                Service           @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  subscriptions          Subscription[]
+  interests              ServiceInterest[]
+  accountPool            AccountPool[]
+  orders                 Order[]
 
   @@unique([serviceId, name])
   @@index([tenantId, serviceId, isActive, sortOrder])
@@ -392,43 +393,43 @@ model ServiceInterest {
 }
 
 model AccountPool {
-  id                   String        @id @default(cuid())
-  tenantId             String
-  serviceId            String
-  servicePlanId        String?
-  label                String?
-  kind                 String        @default("account")
-  credentials          String?
-  credentialsEncrypted String?
-  credentialHint       String?
-  capacity             Int           @default(1)
-  deliveredCount       Int           @default(0)
-  status               String        @default("available")
-  isUsed               Boolean       @default(false)
-  usedAt               DateTime?
+  id                      String               @id @default(cuid())
+  tenantId                String
+  serviceId               String
+  servicePlanId           String?
+  label                   String?
+  kind                    String               @default("account")
+  credentials             String?
+  credentialsEncrypted    String?
+  credentialHint          String?
+  capacity                Int                  @default(1)
+  deliveredCount          Int                  @default(0)
+  status                  String               @default("available")
+  isUsed                  Boolean              @default(false)
+  usedAt                  DateTime?
   credentialDataEncrypted String?
-  costPrice            Decimal       @default(0.0) @db.Decimal(18, 2)
-  expiresAt            DateTime?
-  reservedUntil        DateTime?
-  reservedForOrderId   String?
-  problemReason        String?
-  deletedAt            DateTime?
-  subscriptionId       String?       @unique
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @default(now()) @updatedAt
-  tenant               Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  service              Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  servicePlan          ServicePlan?  @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
-  subscription         Subscription? @relation(name: "SubToAccount", fields: [subscriptionId], references: [id], onDelete: SetNull)
-  allocations          DeliveryAllocation[]
-  warrantyCases        WarrantyCase[]
+  costPrice               Decimal              @default(0.0) @db.Decimal(18, 2)
+  expiresAt               DateTime?
+  reservedUntil           DateTime?
+  reservedForOrderId      String?
+  problemReason           String?
+  deletedAt               DateTime?
+  subscriptionId          String?              @unique
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @default(now()) @updatedAt
+  tenant                  Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  service                 Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  servicePlan             ServicePlan?         @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
+  subscription            Subscription?        @relation(name: "SubToAccount", fields: [subscriptionId], references: [id], onDelete: SetNull)
+  allocations             DeliveryAllocation[]
+  warrantyCases           WarrantyCase[]
 
   @@index([tenantId, serviceId, isUsed])
   @@index([tenantId, servicePlanId, status, createdAt])
 }
 
 model Subscription {
-  id                  String         @id @default(cuid())
+  id                  String               @id @default(cuid())
   tenantId            String
   customerId          String
   serviceId           String
@@ -438,28 +439,28 @@ model Subscription {
   package             String?
   startDate           DateTime
   endDate             DateTime
-  sellingPrice        Decimal        @db.Decimal(18, 2)
-  priceBeforeDiscount Decimal        @default(0.0) @db.Decimal(18, 2)
+  sellingPrice        Decimal              @db.Decimal(18, 2)
+  priceBeforeDiscount Decimal              @default(0.0) @db.Decimal(18, 2)
   discountType        String?
-  discountValue       Decimal        @default(0.0) @db.Decimal(18, 2)
-  discountAmount      Decimal        @default(0.0) @db.Decimal(18, 2)
-  costPrice           Decimal        @db.Decimal(18, 2)
-  status              String         @default("active")
+  discountValue       Decimal              @default(0.0) @db.Decimal(18, 2)
+  discountAmount      Decimal              @default(0.0) @db.Decimal(18, 2)
+  costPrice           Decimal              @db.Decimal(18, 2)
+  status              String               @default("active")
   notes               String?
   createdBy           String?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @default(now()) @updatedAt
-  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer            Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  service             Service        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  servicePlan         ServicePlan?   @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
-  accountDelivered    AccountPool?   @relation(name: "SubToAccount")
-  renewedFrom         Subscription?  @relation("SubscriptionRenewal", fields: [renewedFromId], references: [id], onDelete: SetNull)
-  renewals            Subscription[] @relation("SubscriptionRenewal")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @default(now()) @updatedAt
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service             Service              @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  servicePlan         ServicePlan?         @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
+  accountDelivered    AccountPool?         @relation(name: "SubToAccount")
+  renewedFrom         Subscription?        @relation("SubscriptionRenewal", fields: [renewedFromId], references: [id], onDelete: SetNull)
+  renewals            Subscription[]       @relation("SubscriptionRenewal")
   order               Order?
   deliveryAllocations DeliveryAllocation[]
   warrantyCases       WarrantyCase[]
-  renewalStatus       String         @default("not_due")
+  renewalStatus       String               @default("not_due")
   renewalContactedAt  DateTime?
   renewalDueAt        DateTime?
 
@@ -470,44 +471,44 @@ model Subscription {
 }
 
 model Order {
-  id                    String               @id @default(cuid())
-  tenantId              String
-  customerId            String
-  serviceId             String
-  servicePlanId         String?
-  subscriptionId        String?              @unique
-  assignedToId          String?
-  orderNo               String
-  source                String               @default("dashboard")
-  paymentStatus         String               @default("paid")
-  fulfillmentStatus     String               @default("new")
-  amount                Decimal              @db.Decimal(18, 2)
-  costPrice             Decimal              @default(0.0) @db.Decimal(18, 2)
-  discountAmount        Decimal              @default(0.0) @db.Decimal(18, 2)
-  paymentFee            Decimal              @default(0.0) @db.Decimal(18, 2)
-  customerNote          String?
-  internalNote          String?
-  priority              String               @default("normal")
-  slaDueAt              DateTime?
-  serviceNameSnapshot   String?
-  planNameSnapshot      String?
-  warrantyType          String               @default("none")
-  warrantyEndsAt        DateTime?
-  completedAt           DateTime?
-  cancelledAt           DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @default(now()) @updatedAt
-  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer              Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  service               Service              @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  servicePlan           ServicePlan?         @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
-  subscription          Subscription?        @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  assignedTo            User?                @relation("OrderAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  inputValues           OrderInputValue[]
-  events                OrderEvent[]
-  deliveryAllocations   DeliveryAllocation[]
-  botFlowSession        BotFlowSession?
-  warrantyCases         WarrantyCase[]
+  id                  String               @id @default(cuid())
+  tenantId            String
+  customerId          String
+  serviceId           String
+  servicePlanId       String?
+  subscriptionId      String?              @unique
+  assignedToId        String?
+  orderNo             String
+  source              String               @default("dashboard")
+  paymentStatus       String               @default("paid")
+  fulfillmentStatus   String               @default("new")
+  amount              Decimal              @db.Decimal(18, 2)
+  costPrice           Decimal              @default(0.0) @db.Decimal(18, 2)
+  discountAmount      Decimal              @default(0.0) @db.Decimal(18, 2)
+  paymentFee          Decimal              @default(0.0) @db.Decimal(18, 2)
+  customerNote        String?
+  internalNote        String?
+  priority            String               @default("normal")
+  slaDueAt            DateTime?
+  serviceNameSnapshot String?
+  planNameSnapshot    String?
+  warrantyType        String               @default("none")
+  warrantyEndsAt      DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @default(now()) @updatedAt
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  service             Service              @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  servicePlan         ServicePlan?         @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
+  subscription        Subscription?        @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  assignedTo          User?                @relation("OrderAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  inputValues         OrderInputValue[]
+  events              OrderEvent[]
+  deliveryAllocations DeliveryAllocation[]
+  botFlowSession      BotFlowSession?
+  warrantyCases       WarrantyCase[]
 
   @@unique([tenantId, orderNo])
   @@index([tenantId, fulfillmentStatus, createdAt])
@@ -533,7 +534,7 @@ model OrderInputValue {
 }
 
 model OrderEvent {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   tenantId          String
   orderId           String
   actorId           String?
@@ -541,13 +542,13 @@ model OrderEvent {
   fromStatus        String?
   toStatus          String?
   message           String?
-  isCustomerVisible Boolean  @default(false)
+  isCustomerVisible Boolean   @default(false)
   sentAt            DateTime?
   metadata          Json?
-  createdAt         DateTime @default(now())
-  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  actor             User?    @relation("OrderEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt         DateTime  @default(now())
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor             User?     @relation("OrderEventActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, orderId, createdAt])
   @@index([tenantId, type, createdAt])
@@ -593,41 +594,41 @@ model BotFlowSession {
 }
 
 model MessageTemplate {
-  id          String   @id @default(cuid())
-  tenantId    String
-  name        String
-  category    String   @default("general")
-  channel     String   @default("telegram")
-  content     String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  category  String   @default("general")
+  channel   String   @default("telegram")
+  content   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, name])
   @@index([tenantId, category, isActive])
 }
 
 model Notification {
-  id          String   @id @default(cuid())
-  tenantId    String
-  userId      String?
-  type        String
-  title       String
-  body        String?
-  href        String?
-  metadata    Json?
-  readAt      DateTime?
-  createdAt   DateTime @default(now())
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user        User?    @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  tenantId  String
+  userId    String?
+  type      String
+  title     String
+  body      String?
+  href      String?
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User?     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, readAt, createdAt])
   @@index([userId, readAt, createdAt])
 }
 
 model WarrantyCase {
-  id             String        @id @default(cuid())
+  id             String          @id @default(cuid())
   tenantId       String
   customerId     String
   orderId        String?
@@ -635,22 +636,22 @@ model WarrantyCase {
   accountPoolId  String?
   assignedToId   String?
   number         String
-  status         String        @default("new")
-  priority       String        @default("normal")
+  status         String          @default("new")
+  priority       String          @default("normal")
   problem        String
   resolution     String?
   replacementId  String?
-  openedAt       DateTime      @default(now())
+  openedAt       DateTime        @default(now())
   resolvedAt     DateTime?
   closedAt       DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  order          Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  accountPool    AccountPool?  @relation(fields: [accountPoolId], references: [id], onDelete: SetNull)
-  assignedTo     User?         @relation("WarrantyAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order          Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  accountPool    AccountPool?    @relation(fields: [accountPoolId], references: [id], onDelete: SetNull)
+  assignedTo     User?           @relation("WarrantyAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   events         WarrantyEvent[]
 
   @@unique([tenantId, number])

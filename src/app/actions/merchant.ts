@@ -823,7 +823,7 @@ export async function deleteAdvertising(id: string) {
 
 export async function getSettings() {
   try {
-    const { tenantId } = await getActiveTenant('settings');
+    const { tenantId } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -838,6 +838,7 @@ export async function getSettings() {
         saasPlan: true,
         saasStatus: true,
         saasExpiry: true,
+        autoRenew: true,
         saasBalance: true,
         botSettings: {
           select: {
@@ -872,7 +873,7 @@ export async function saveSettings(data: {
   locale?: string;
 }) {
   try {
-    const { tenantId, session } = await getActiveTenant('settings');
+    const { tenantId, session } = await getActiveTenant('settings', { allowInactiveTenant: true });
     const tenant = await prisma.tenant.update({
       where: { id: tenantId },
       data: {

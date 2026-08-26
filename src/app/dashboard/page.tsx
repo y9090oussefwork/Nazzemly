@@ -209,7 +209,13 @@ function DashboardWorkspace() {
         <button onClick={() => startSubscription()} className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm font-bold text-zinc-100 transition-colors duration-150 hover:border-zinc-500 active:scale-[0.98]"><Plus className="h-4 w-4" />اشتراك جديد</button>
         <button onClick={() => router.push('/dashboard/setup')} className="inline-flex items-center gap-2 rounded-xl border border-zinc-800 px-3 py-2.5 text-sm font-bold text-zinc-400 transition-colors duration-150 hover:bg-zinc-900 hover:text-zinc-100 active:scale-[0.98]"><RefreshCw className="h-4 w-4" />إعداد المتجر</button>
       </div>
-      {notice ? <div role="status" className="mt-4 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="إغلاق الرسالة"><X className="h-4 w-4" /></button></div> : null}
+      {notice ? <div role="status" className={`mt-4 flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${notice === 'TENANT_SUBSCRIPTION_INACTIVE' ? 'border-amber-500/40 bg-amber-500/10 text-amber-100' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'}`}>
+        <span>{notice === 'TENANT_SUBSCRIPTION_INACTIVE' ? 'اشتراك متجرك منتهي أو غير نشط. يمكنك التجديد الآن من رصيد المحفظة.' : notice}</span>
+        <div className="flex items-center gap-3">
+          {notice === 'TENANT_SUBSCRIPTION_INACTIVE' && <button onClick={() => router.push('/dashboard/billing')} className="rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-black text-zinc-950">فتح التجديد</button>}
+          <button onClick={() => setNotice('')} aria-label="إغلاق الرسالة"><X className="h-4 w-4" /></button>
+        </div>
+      </div> : null}
       <HomeSearch />
 
       {screen === 'today' ? <section className="mt-7 space-y-7">
