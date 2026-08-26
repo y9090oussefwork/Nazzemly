@@ -3,15 +3,134 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getDashboardAnalytics } from '@/app/actions/dashboard-analytics';
 
-const presets = [{ key: 'today', label: 'اليوم' }, { key: 'yesterday', label: 'أمس' }, { key: 'last7', label: 'آخر 7 أيام' }, { key: 'last30', label: 'آخر 30 يومًا' }, { key: 'thisMonth', label: 'هذا الشهر' }, { key: 'lastMonth', label: 'الشهر الماضي' }, { key: 'thisYear', label: 'هذه السنة' }];
-const labels: Record<string, string> = { revenue: 'الإيراد', profit: 'صافي الربح', expenses: 'المصروفات', directCosts: 'تكلفة الخدمات والرسوم', orders: 'الطلبات الجديدة', customersCreated: 'عملاء جدد', subscriptionsCreated: 'اشتراكات جديدة', approvedTopups: 'شحنات معتمدة', totalCustomers: 'إجمالي العملاء', activeSubscriptions: 'اشتراكات نشطة', openOrders: 'طلبات تحتاج تنفيذًا', pendingPayments: 'شحن بانتظار الاعتماد', lowStock: 'خطط نفد مخزونها', expiring: 'تجديدات خلال 7 أيام' };
+const presets = [
+  { key: 'today', label: 'اليوم' }, { key: 'yesterday', label: 'أمس' }, { key: 'last7', label: 'آخر 7 أيام' },
+  { key: 'last30', label: 'آخر 30 يومًا' }, { key: 'thisMonth', label: 'هذا الشهر' }, { key: 'lastMonth', label: 'الشهر الماضي' }, { key: 'thisYear', label: 'هذه السنة' },
+];
+
+const labels: Record<string, string> = {
+  revenue: 'الإيراد', profit: 'صافي الربح', expenses: 'المصروفات', directCosts: 'تكلفة الخدمات والرسوم', orders: 'الطلبات الجديدة', customersCreated: 'عملاء جدد', subscriptionsCreated: 'اشتراكات جديدة', approvedTopups: 'شحنات معتمدة', totalCustomers: 'إجمالي العملاء', activeSubscriptions: 'اشتراكات نشطة', openOrders: 'طلبات تحتاج تنفيذًا', pendingPayments: 'شحن بانتظار الاعتماد', lowStock: 'خطط نفد مخزونها', expiring: 'تجديدات خلال 7 أيام',
+};
+
 const currencyMetrics = new Set(['revenue', 'profit', 'expenses', 'directCosts']);
 
 export default function AnalyticsDashboard() {
-  const [period, setPeriod] = useState('thisMonth'); const [data, setData] = useState<any>(null); const [loading, setLoading] = useState(true);
-  useEffect(() => { setLoading(true); void getDashboardAnalytics(period).then((result) => { if (result.success) setData(result); }).finally(() => setLoading(false)); }, [period]);
+  const [period, setPeriod] = useState('thisMonth');
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    void getDashboardAnalytics(period).then((result) => { if (result.success) setData(result); }).finally(() => setLoading(false));
+  }, [period]);
+
   const max = useMemo(() => data ? Math.max(1, ...data.chart.flatMap((point: any) => [point.revenue, point.expenses])) : 1, [data]);
-  return <section className="mt-7 space-y-5" dir="rtl"><div className="flex flex-wrap gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-2">{presets.map((item) => <button key={item.key} onClick={() => setPeriod(item.key)} className={`rounded-xl px-3 py-2 text-xs font-bold transition-colors duration-150 active:scale-[0.98] ${period === item.key ? 'bg-emerald-500 text-zinc-950' : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'}`}>{item.label}</button>)}</div>{loading || !data ? <div className="grid animate-pulse gap-4 sm:grid-cols-2 xl:grid-cols-4"><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /></div> : <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Object.entries(data.metrics).map(([key, value]) => <Metric key={key} label={labels[key]} value={Number(value)} currency={data.currency} money={currencyMetrics.has(key)} warn={['openOrders', 'pendingPayments', 'lowStock', 'expiring'].includes(key) && Number(value) > 0} />)}</div><div className="grid gap-4 xl:grid-cols-[1.7fr_.8fr]"><section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5"><div><h2 className="font-black">حركة الإيرادات والمصروفات</h2><p className="mt-1 text-sm text-zinc-500">الفترة المختارة — بيانات فعلية من الطلبات والمصروفات</p></div><div className="mt-6 flex h-56 items-end gap-1.5 overflow-x-auto pb-1">{data.chart.map((point: any) => <div key={point.key} className="flex min-w-8 flex-1 flex-col items-center gap-2"><div className="flex h-44 w-full items-end justify-center gap-1"><i title={`إيراد ${point.revenue}`} className="w-[44%] rounded-t bg-emerald-400" style={{ height: `${Math.max(3, point.revenue / max * 100)}%` }} /><i title={`مصروف ${point.expenses}`} className="w-[44%] rounded-t bg-rose-400" style={{ height: `${Math.max(3, point.expenses / max * 100)}%` }} /></div><span className="text-[10px] text-zinc-500">{point.label}</span></div>)}</div><div className="mt-4 flex gap-4 text-xs text-zinc-400"><span><i className="ml-1 inline-block h-2 w-2 rounded-sm bg-emerald-400" />الإيراد</span><span><i className="ml-1 inline-block h-2 w-2 rounded-sm bg-rose-400" />المصروفات</span></div></section><Breakdown title="أفضل الخدمات" items={data.topServices} currency={data.currency} /><Breakdown title="أكبر بنود المصروفات" items={data.expenseCategories} currency={data.currency} /></div></>}</section>;
+
+  return (
+    <section className="mt-7 space-y-5" dir="rtl">
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-2">
+        {presets.map((item) => (
+          <button
+            key={item.key}
+            onClick={() => setPeriod(item.key)}
+            className={`rounded-xl px-3 py-2 text-xs font-bold transition-colors duration-150 active:scale-[0.98] ${period === item.key ? 'bg-emerald-500 text-black' : 'text-white hover:bg-zinc-800'}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {loading || !data ? (
+        <div className="grid animate-pulse gap-4 sm:grid-cols-2 xl:grid-cols-4"><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /><div className="h-28 rounded-2xl bg-zinc-900" /></div>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {Object.entries(data.metrics).map(([key, value]) => <Metric key={key} label={labels[key]} value={Number(value)} currency={data.currency} money={currencyMetrics.has(key)} warn={['openOrders', 'pendingPayments', 'lowStock', 'expiring'].includes(key) && Number(value) > 0} />)}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,.65fr)]">
+            <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <div><h2 className="font-black">حركة الإيرادات والمصروفات</h2><p className="mt-1 text-sm text-zinc-500">الفترة المختارة — بيانات فعلية من الطلبات والمصروفات</p></div>
+              <div className="mt-6 flex h-56 items-end gap-1.5 overflow-x-auto pb-1">
+                {data.chart.map((point: any) => (
+                  <div key={point.key} className="flex min-w-8 flex-1 flex-col items-center gap-2">
+                    <div className="flex h-44 w-full items-end justify-center gap-1">
+                      <i title={`إيراد ${point.revenue}`} className="w-[44%] rounded-t bg-emerald-400" style={{ height: `${Math.max(3, point.revenue / max * 100)}%` }} />
+                      <i title={`مصروف ${point.expenses}`} className="w-[44%] rounded-t bg-rose-400" style={{ height: `${Math.max(3, point.expenses / max * 100)}%` }} />
+                    </div>
+                    <span className="text-[10px] text-zinc-500">{point.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex gap-4 text-xs text-zinc-400">
+                <span><i className="ml-1 inline-block h-2 w-2 rounded-sm bg-emerald-400" />الإيراد</span>
+                <span><i className="ml-1 inline-block h-2 w-2 rounded-sm bg-rose-400" />المصروفات</span>
+              </div>
+            </section>
+            <ServiceLeaderboard items={data.topServices} currency={data.currency} />
+          </div>
+
+          <Breakdown title="أكبر بنود المصروفات" items={data.expenseCategories} currency={data.currency} />
+        </>
+      )}
+    </section>
+  );
 }
-function Metric({ label, value, currency, money, warn }: { label: string; value: number; currency: string; money?: boolean; warn?: boolean }) { return <article className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4"><p className="text-xs text-zinc-500">{label}</p><p className={`mt-3 text-2xl font-black ${warn ? 'text-amber-300' : 'text-white'}`}>{value.toLocaleString('ar-EG', { maximumFractionDigits: 2 })}{money ? <span className="mr-1 text-xs text-zinc-500">{currency}</span> : null}</p></article>; }
-function Breakdown({ title, items, currency }: { title: string; items: any[]; currency: string }) { const max = items[0]?.amount || 1; return <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5"><h2 className="font-black">{title}</h2><div className="mt-5 space-y-4">{items.length ? items.map((item) => <div key={item.name}><div className="flex justify-between gap-2 text-sm"><span className="truncate text-zinc-300">{item.name}</span><span className="font-bold text-zinc-100">{Number(item.amount).toLocaleString('ar-EG')} {currency}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800"><div className="h-full rounded-full bg-violet-400" style={{ width: `${item.amount / max * 100}%` }} /></div></div>) : <p className="py-10 text-center text-sm text-zinc-500">لا توجد بيانات خلال هذه الفترة.</p>}</div></section>; }
+
+function Metric({ label, value, currency, money, warn }: { label: string; value: number; currency: string; money?: boolean; warn?: boolean }) {
+  return <article className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4"><p className="text-xs text-zinc-500">{label}</p><p className={`mt-3 text-2xl font-black ${warn ? 'text-amber-300' : 'text-white'}`}>{value.toLocaleString('ar-EG', { maximumFractionDigits: 2 })}{money ? <span className="mr-1 text-xs text-zinc-500">{currency}</span> : null}</p></article>;
+}
+
+function ServiceLeaderboard({ items, currency }: { items: Array<{ name: string; amount: number; sales?: number }>; currency: string }) {
+  const total = items.reduce((sum, item) => sum + Number(item.amount), 0);
+  return (
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 className="font-black">أفضل الخدمات</h2><p className="mt-1 text-sm text-zinc-500">مرتبة حسب إيراد الفترة المختارة</p></div>
+        <span className="shrink-0 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-black text-emerald-300">أفضل 5</span>
+      </div>
+      {items.length ? <ol className="mt-5 space-y-2">{items.map((item, index) => {
+        const share = total ? Math.round(Number(item.amount) / total * 100) : 0;
+        return (
+          <li key={item.name} className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3">
+            <div className="flex items-start gap-3">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-zinc-800 text-xs font-black text-emerald-300">{index + 1}</span>
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-sm font-black leading-5 text-zinc-100">{item.name}</p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+                  <span className="font-black text-emerald-300">{Number(item.amount).toLocaleString('ar-EG', { maximumFractionDigits: 2 })} {currency}</span>
+                  <span className="text-zinc-400">{item.sales || 0} مبيعات · {share}%</span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-emerald-400" style={{ width: `${share}%` }} />
+                </div>
+              </div>
+            </div>
+          </li>
+        );
+      })}</ol> : <p className="py-10 text-center text-sm text-zinc-500">لا توجد مبيعات خدمات خلال هذه الفترة.</p>}
+    </section>
+  );
+}
+
+function Breakdown({ title, items, currency }: { title: string; items: any[]; currency: string }) {
+  const max = items[0]?.amount || 1;
+  return (
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+      <h2 className="font-black">{title}</h2>
+      <div className="mt-5 space-y-4">
+        {items.length ? items.map((item) => (
+          <div key={item.name}>
+            <div className="flex justify-between gap-2 text-sm">
+              <span className="truncate text-zinc-300">{item.name}</span>
+              <span className="font-bold text-zinc-100">{Number(item.amount).toLocaleString('ar-EG')} {currency}</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${item.amount / max * 100}%` }} />
+            </div>
+          </div>
+        )) : <p className="py-10 text-center text-sm text-zinc-500">لا توجد بيانات خلال هذه الفترة.</p>}
+      </div>
+    </section>
+  );
+}

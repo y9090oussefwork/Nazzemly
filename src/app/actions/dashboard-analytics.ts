@@ -41,12 +41,18 @@ export async function getDashboardAnalytics(rawPeriod = 'thisMonth') {
   const revenue = subscriptions.reduce((sum, item) => sum + Number(item.sellingPrice), 0) + standaloneOrders.reduce((sum, item) => sum + Number(item.amount), 0);
   const directCosts = subscriptions.reduce((sum, item) => sum + Number(item.costPrice), 0) + standaloneOrders.reduce((sum, item) => sum + Number(item.costPrice) + Number(item.paymentFee), 0);
   const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
-  const serviceMap = new Map<string, number>(); for (const subscription of subscriptions) serviceMap.set(subscription.service.name, (serviceMap.get(subscription.service.name) ?? 0) + Number(subscription.sellingPrice)); for (const order of standaloneOrders) serviceMap.set(order.service.name, (serviceMap.get(order.service.name) ?? 0) + Number(order.amount));
+  const serviceMap = new Map<string, { amount: number; sales: number }>();
+  const addServiceSale = (name: string, amount: number) => {
+    const current = serviceMap.get(name) ?? { amount: 0, sales: 0 };
+    serviceMap.set(name, { amount: current.amount + amount, sales: current.sales + 1 });
+  };
+  for (const subscription of subscriptions) addServiceSale(subscription.service.name, Number(subscription.sellingPrice));
+  for (const order of standaloneOrders) addServiceSale(order.service.name, Number(order.amount));
   const expenseMap = new Map<string, number>(); for (const expense of expenses) expenseMap.set(expense.category, (expenseMap.get(expense.category) ?? 0) + Number(expense.amount));
   const days = Math.max(1, Math.min(31, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1));
   const chart = Array.from({ length: days }, (_, index) => { const day = new Date(start); day.setDate(day.getDate() + index); return { key: day.toISOString().slice(0, 10), label: new Intl.DateTimeFormat('ar-EG', { day: 'numeric', month: days > 14 ? 'short' : undefined }).format(day), revenue: 0, expenses: 0 }; });
   const index = new Map(chart.map((item, i) => [item.key, i]));
   for (const subscription of subscriptions) { const bucket = chart[index.get(subscription.createdAt.toISOString().slice(0, 10)) ?? -1]; if (bucket) bucket.revenue += Number(subscription.sellingPrice); } for (const order of standaloneOrders) { const bucket = chart[index.get(order.createdAt.toISOString().slice(0, 10)) ?? -1]; if (bucket) bucket.revenue += Number(order.amount); }
   for (const expense of expenses) { const bucket = chart[index.get(expense.date.toISOString().slice(0, 10)) ?? -1]; if (bucket) bucket.expenses += Number(expense.amount); }
-  return { success: true, period, currency, range: { start: start.toISOString(), end: end.toISOString() }, metrics: { revenue, directCosts, expenses: expenseTotal, profit: revenue - directCosts - expenseTotal, orders: subscriptions.length + standaloneOrders.length, customersCreated, subscriptionsCreated, approvedTopups: payments, totalCustomers, activeSubscriptions, openOrders, pendingPayments, lowStock, expiring }, chart, topServices: [...serviceMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount })), expenseCategories: [...expenseMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount })) };
+  return { success: true, period, currency, range: { start: start.toISOString(), end: end.toISOString() }, metrics: { revenue, directCosts, expenses: expenseTotal, profit: revenue - directCosts - expenseTotal, orders: subscriptions.length + standaloneOrders.length, customersCreated, subscriptionsCreated, approvedTopups: payments, totalCustomers, activeSubscriptions, openOrders, pendingPayments, lowStock, expiring }, chart, topServices: [...serviceMap.entries()].sort((a, b) => b[1].amount - a[1].amount).slice(0, 5).map(([name, values]) => ({ name, ...values })), expenseCategories: [...expenseMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount })) };
 }
