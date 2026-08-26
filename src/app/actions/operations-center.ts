@@ -112,7 +112,9 @@ export async function getGlobalSearchResults(rawQuery: string) {
 }
 
 export async function getRenewalWorkspace() {
-  const { tenantId, currency } = await getActiveTenant('subscriptions');
+  // Keep the renewal workspace available when a merchant subscription is expired,
+  // so the merchant can still review customer renewals and recover the account.
+  const { tenantId, currency } = await getActiveTenant('subscriptions', { allowInactiveTenant: true });
   const today = startOfToday();
   const limit = endOfDay(30);
   const subscriptions = await prisma.subscription.findMany({
