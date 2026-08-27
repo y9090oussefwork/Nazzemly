@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
-import { Check, Copy, HandCoins, Landmark, Link2, Loader2, Send, Users } from 'lucide-react';
-import { getMyReferralCenter, redeemReferralBalanceForSaas, requestReferralPayout } from '@/app/actions/referrals';
+import { Check, CheckCircle2, Copy, HandCoins, Landmark, Link2, Loader2, SearchCheck, Send, Users } from 'lucide-react';
+import { checkMyReferralCodeAvailability, getMyReferralCenter, redeemReferralBalanceForSaas, requestReferralPayout, updateMyReferralCode } from '@/app/actions/referrals';
 
 const methodLabel: Record<string, string> = { vodafone_cash: 'فودافون كاش', instapay: 'إنستا باي', bank_transfer: 'تحويل بنكي' };
 
@@ -53,11 +53,19 @@ export default function ReferralCenter() {
   const [notice, setNotice] = useState('');
   const [amount, setAmount] = useState('');
   const [payout, setPayout] = useState({ amount: '', method: 'vodafone_cash', accountIdentifier: '', note: '' });
+  const [customCode, setCustomCode] = useState('');
+  const [codeState, setCodeState] = useState<{ kind: 'idle' | 'available' | 'used' | 'invalid'; message: string }>({ kind: 'idle', message: '' });
+
+  const applyData = (result: ReferralCenterData) => {
+    setData(result);
+    setCustomCode(result.program.code);
+    setCodeState({ kind: 'idle', message: '' });
+  };
 
   const refresh = async () => {
     const result = await getMyReferralCenter();
     if (result.success && result.settings && result.program) {
-      setData({ settings: result.settings, program: result.program, referrals: result.referrals, entries: result.entries });
+      applyData({ settings: result.settings, program: result.program, referrals: result.referrals, entries: result.entries });
     }
     else setNotice(result.error || 'تعذر تحميل برنامج الإحالة.');
   };
@@ -67,7 +75,7 @@ export default function ReferralCenter() {
     void getMyReferralCenter().then((result) => {
       if (cancelled) return;
       if (result.success && result.settings && result.program) {
-        setData({ settings: result.settings, program: result.program, referrals: result.referrals, entries: result.entries });
+        applyData({ settings: result.settings, program: result.program, referrals: result.referrals, entries: result.entries });
       }
       else setNotice(result.error || 'تعذر تحميل برنامج الإحالة.');
     });
@@ -94,6 +102,28 @@ export default function ReferralCenter() {
     }
   };
 
+  const checkCode = () => startTransition(async () => {
+    const result = await checkMyReferralCodeAvailability(customCode);
+    if (!result.success) {
+      setCodeState({ kind: 'invalid', message: result.error || 'تحقق من صيغة الكود ثم أعد المحاولة.' });
+      return;
+    }
+    setCustomCode(result.code || customCode);
+    setCodeState(result.available
+      ? { kind: 'available', message: result.isCurrentCode ? 'هذا هو كودك الحالي.' : 'الكود متاح ويمكنك استخدامه.' }
+      : { kind: 'used', message: 'هذا الكود مستخدم بالفعل. اختر كوداً مختلفاً.' });
+  });
+
+  const saveCustomCode = () => startTransition(async () => {
+    const result = await updateMyReferralCode(customCode);
+    if (!result.success) {
+      setCodeState({ kind: 'used', message: result.error || 'تعذر حفظ الكود.' });
+      return;
+    }
+    setNotice(`تم حفظ كود الإحالة الجديد: ${result.code}`);
+    await refresh();
+  });
+
   const redeem = () => startTransition(async () => {
     const result = await redeemReferralBalanceForSaas(Number(amount));
     setNotice(result.success ? 'تمت إضافة رصيد الإحالة إلى رصيد المنصة. يمكنك التجديد الآن.' : result.error || 'تعذر استخدام الرصيد.');
@@ -119,7 +149,7 @@ export default function ReferralCenter() {
         {signupDiscount > 0 ? <p className="mt-1 text-xs font-bold leading-6 text-emerald-200">وصديقك يحصل على خصم {signupDiscount.toFixed(2)} EGP من أول اشتراك مدفوع له.</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => void copyLink()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-500 px-3 text-xs font-black text-zinc-950 transition-colors hover:bg-emerald-400"><Link2 className="h-4 w-4" />نسخ رابط الإحالة</button>
+        <button type="button" onClick={() => void copyLink()} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-500 px-3 text-xs font-black text-emerald-950 transition-colors hover:bg-emerald-400"><Link2 className="h-4 w-4" />نسخ رابط الإحالة</button>
         <button type="button" onClick={() => void copyCode()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black text-zinc-100 transition-colors hover:border-emerald-400 hover:text-emerald-200"><Copy className="h-4 w-4" />نسخ الرمز</button>
       </div>
     </div>
@@ -136,6 +166,33 @@ export default function ReferralCenter() {
       <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-3"><p className="text-[11px] font-bold text-emerald-200">رمزك</p><p className="mt-1 font-mono text-sm font-black text-white" dir="ltr">{data.program.code}</p></div>
       <div className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-950/45 p-3"><p className="mb-1 text-[11px] font-bold text-zinc-400">رابط الإحالة الكامل</p><p className="truncate text-left font-mono text-xs text-zinc-200" dir="ltr">{shareLink}</p></div>
     </div>
+
+    <form onSubmit={(event) => { event.preventDefault(); saveCustomCode(); }} className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="flex items-center gap-2 text-sm font-black text-white"><Link2 className="h-4 w-4 text-emerald-300" />اختر كود إحالتك</h4>
+          <p className="mt-1 text-xs leading-6 text-zinc-300">اكتب كوداً سهلاً لمشاركته. يجب أن يكون فريداً، وسيتغير رابط الإحالة تلقائياً بعد الحفظ.</p>
+        </div>
+        <span className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-300" dir="ltr">3–24 · A-Z · 0-9 · - · _</span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+        <input
+          value={customCode}
+          onChange={(event) => { setCustomCode(event.target.value.toUpperCase().replace(/\s+/g, '')); setCodeState({ kind: 'idle', message: '' }); }}
+          onBlur={checkCode}
+          maxLength={24}
+          autoCapitalize="characters"
+          spellCheck={false}
+          placeholder="مثال: MARK-2026"
+          aria-describedby="referral-code-help"
+          className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base font-bold text-white outline-none focus:border-emerald-400"
+          dir="ltr"
+        />
+        <button type="button" onClick={checkCode} disabled={isPending || !customCode.trim()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black text-zinc-100 transition-colors hover:border-emerald-400 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"><SearchCheck className="h-4 w-4" />فحص الكود</button>
+        <button disabled={isPending || !customCode.trim()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 text-xs font-black text-emerald-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60">{isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}حفظ الكود</button>
+      </div>
+      <p id="referral-code-help" role="status" className={`mt-2 text-xs font-bold leading-6 ${codeState.kind === 'available' ? 'text-emerald-200' : codeState.kind === 'used' || codeState.kind === 'invalid' ? 'text-rose-200' : 'text-zinc-400'}`}>{codeState.message || 'استخدم الحروف الإنجليزية والأرقام وشرطة - أو _. لا يمكن استخدام كود تاجر آخر.'}</p>
+    </form>
 
     <div className="mt-5 grid gap-4 lg:grid-cols-2">
       <form onSubmit={(event) => { event.preventDefault(); redeem(); }} className="rounded-xl border border-zinc-800 bg-zinc-950/40 p-4"><h4 className="flex items-center gap-2 text-sm font-black text-white"><Check className="h-4 w-4 text-emerald-300" />استخدم الأرباح في التجديد</h4><p className="mt-1 text-xs leading-6 text-zinc-300">ينتقل المبلغ فورًا إلى رصيد المنصة، ثم اختر باقتك في تبويب الاشتراك وجدّد.</p><div className="mt-3 flex gap-2"><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" type="number" min="1" step="0.01" placeholder="قيمة الاستخدام" className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" /><button disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-500 px-3 text-xs font-black text-zinc-950 disabled:opacity-60">{isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}استخدام</button></div></form>

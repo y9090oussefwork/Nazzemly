@@ -10,6 +10,7 @@ import { ensureReferralProgram } from '@/lib/referrals';
 import { writeAuditLog } from '@/lib/audit';
 
 const PAYOUT_METHODS = ['vodafone_cash', 'instapay', 'bank_transfer'] as const;
+const REFERRAL_CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{2,23}$/;
 
 function safeError(error: unknown, fallback: string) {
   console.error(fallback, error);
@@ -18,6 +19,14 @@ function safeError(error: unknown, fallback: string) {
 
 function serializeEntry<T extends { amount: Prisma.Decimal; balanceAfter: Prisma.Decimal }>(entry: T) {
   return { ...entry, amount: money(entry.amount), balanceAfter: money(entry.balanceAfter) };
+}
+
+function normalizeReferralCode(value: unknown) {
+  const code = cleanText(value, 'كود الإحالة', 3, 24).replace(/\s+/g, '').toUpperCase();
+  if (!REFERRAL_CODE_PATTERN.test(code)) {
+    throw new Error('كود الإحالة يقبل الحروف الإنجليزية والأرقام وشرطة - أو _ فقط، من 3 إلى 24 حرفاً');
+  }
+  return code;
 }
 
 export async function getMyReferralCenter() {
@@ -88,6 +97,48 @@ export async function getMyReferralCenter() {
     };
   } catch (error) {
     return { success: false, error: safeError(error, 'تعذر تحميل مركز الإحالة'), referrals: [], entries: [], payoutRequests: [] };
+  }
+}
+
+export async function checkMyReferralCodeAvailability(codeInput: string) {
+  try {
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const code = normalizeReferralCode(codeInput);
+    const current = await prisma.$transaction((tx) => ensureReferralProgram(tx, session.tenantId));
+    const owner = await prisma.referralProgram.findUnique({ where: { code }, select: { id: true } });
+    return { success: true, code, available: !owner || owner.id === current.id, isCurrentCode: owner?.id === current.id };
+  } catch (error) {
+    return { success: false, error: safeError(error, 'تعذر فحص كود الإحالة') };
+  }
+}
+
+export async function updateMyReferralCode(codeInput: string) {
+  try {
+    const session = await requirePermission('billing', { allowInactiveTenant: true });
+    const code = normalizeReferralCode(codeInput);
+    const program = await prisma.$transaction(async (tx) => {
+      const current = await ensureReferralProgram(tx, session.tenantId);
+      if (current.code === code) return current;
+
+      const owner = await tx.referralProgram.findUnique({ where: { code }, select: { id: true } });
+      if (owner) throw new Error('هذا الكود مستخدم بالفعل من تاجر آخر. اختر كوداً مختلفاً.');
+
+      return tx.referralProgram.update({ where: { id: current.id }, data: { code } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    await writeAuditLog({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      action: 'referral.code_updated',
+      entityType: 'ReferralProgram',
+      entityId: program.id,
+      metadata: { code: program.code },
+    });
+    revalidatePath('/dashboard/billing');
+    return { success: true, code: program.code };
+  } catch (error) {
+    const isDuplicate = typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+    return { success: false, error: isDuplicate ? 'هذا الكود مستخدم بالفعل من تاجر آخر. اختر كوداً مختلفاً.' : safeError(error, 'تعذر حفظ كود الإحالة') };
   }
 }
 
