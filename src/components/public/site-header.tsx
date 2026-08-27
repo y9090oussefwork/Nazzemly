@@ -9,6 +9,7 @@ const navigation = [
   { href: '#features', label: 'المزايا' },
   { href: '#workflow', label: 'كيف يعمل' },
   { href: '#pricing', label: 'الباقات' },
+  { href: '#storefront', label: 'موقع التاجر' },
   { href: '#referral', label: 'الإحالة' },
 ];
 

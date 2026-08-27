@@ -7,7 +7,8 @@ import {
   CircleHelp,
   CreditCard,
   FileText,
-  ShieldCheck,
+  Globe2,
+  PackageCheck,
   Sparkles,
   Store,
   UsersRound,
@@ -67,6 +68,13 @@ const faqs = [
   ['هل أحتاج إلى بطاقة عند التسجيل؟', 'لا. تبدأ تجربة مجانية لمدة 14 يومًا، ثم تختار الباقة المناسبة وتجدد من محفظة المنصة.'],
   ['هل أحتاج إلى بوت تيليجرام لتشغيل المتجر؟', 'لا. يمكنك إدارة عملك كاملًا من اللوحة، ويكون البوت قناة إضافية للبيع والدعم عندما تكون جاهزًا.'],
   ['هل يمكنني إضافة فريق إلى متجري؟', 'نعم. أضف أعضاء فريقك وحدد صلاحياتهم من الإعدادات حسب مهامهم.'],
+];
+
+const operatingAreas = [
+  ['العملاء', 'ملف واحد لكل عميل: بياناته، ملاحظاتك، اشتراكاته، مدفوعاته وسجل التواصل.'],
+  ['الخدمات والمخزون', 'باقات متعددة، أسعار واضحة، حسابات خاصة أو مشتركة، ومخزون يعرف التاجر المتاح منه فورًا.'],
+  ['الطلبات والتفعيل', 'تتابع الطلب من تأكيد التحويل إلى التسليم، أو تجمع البيانات اللازمة للتفعيل وتحدّث العميل بالحالة.'],
+  ['التجديد والضمان', 'تنبيهات قبل الانتهاء، تواصل سريع، تجديد منظم، وتوثيق حالات الضمان والاستبدال عند الحاجة.'],
 ];
 
 export default async function Home() {
@@ -141,6 +149,34 @@ export default async function Home() {
               ['شغّل المبيعات', 'تابع الطلبات والعملاء من اللوحة، واربط البوت عندما تكون جاهزًا.'],
             ].map(([title, body], index) => <li key={title} className="border-b border-white/10 p-6 last:border-b-0 sm:border-b-0 sm:border-l sm:last:border-l-0 sm:p-7"><span className="font-[family-name:var(--font-geist-sans)] text-sm font-black text-emerald-300">0{index + 1}</span><h3 className="mt-8 text-xl font-black text-white">{title}</h3><p className="mt-3 text-sm font-semibold leading-7 text-zinc-400">{body}</p></li>)}
           </ol>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28 lg:px-10">
+        <div className="grid gap-12 lg:grid-cols-[1.04fr_0.96fr] lg:items-start lg:gap-16">
+          <div>
+            <h2 className="max-w-2xl text-3xl font-black leading-[1.2] tracking-[-0.035em] text-white sm:text-5xl">من الخدمة إلى التجديد، لا تفقد أي تفصيلة.</h2>
+            <p className="mt-5 max-w-xl text-base font-semibold leading-8 text-zinc-400">نظّملي مصمم لتجارة الاشتراكات الرقمية فعلًا، لذلك لا يكتفي بتسجيل العميل أو الفاتورة. يربط ما تبيعه بما يحتاجه العميل وما يجب أن يفعله فريقك بعدها.</p>
+            <div className="mt-8 border-y border-white/10"><div className="grid grid-cols-[auto_1fr] items-center gap-4 py-5"><span className="grid size-10 place-items-center rounded-lg bg-emerald-400/10 text-emerald-200"><PackageCheck className="size-5" /></span><p className="text-sm font-black leading-7 text-zinc-200">حدد لكل خدمة طريقة تسليمها: تفعيل يدوي، بيانات حساب، رابط، دعوة بريد أو طلب معلومات من العميل.</p></div><div className="grid grid-cols-[auto_1fr] items-center gap-4 border-t border-white/10 py-5"><span className="grid size-10 place-items-center rounded-lg bg-emerald-400/10 text-emerald-200"><Bot className="size-5" /></span><p className="text-sm font-black leading-7 text-zinc-200">اجعل البوت قناة بيع ودعم اختيارية، بينما يبقى كل شيء قابلًا للإدارة من لوحة متجرك.</p></div></div>
+          </div>
+          <div className="divide-y divide-white/10 border-y border-white/10">
+            {operatingAreas.map(([title, body]) => <article key={title} className="grid grid-cols-[minmax(7rem,0.42fr)_1fr] gap-5 py-6 sm:gap-8"><h3 className="text-base font-black text-emerald-200">{title}</h3><p className="text-sm font-semibold leading-7 text-zinc-400">{body}</p></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section id="storefront" className="border-y border-emerald-300/15 bg-[#0c2119] py-20 sm:py-28">
+        <div className="mx-auto grid max-w-7xl gap-12 px-5 sm:px-8 lg:grid-cols-[0.96fr_1.04fr] lg:items-center lg:px-10">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-black text-amber-100"><Globe2 className="size-4" />ميزة قيد التطوير</div>
+            <h2 className="mt-6 max-w-xl text-3xl font-black leading-[1.2] tracking-[-0.035em] text-white sm:text-5xl">موقع خدمات خاص بكل تاجر.</h2>
+            <p className="mt-5 max-w-xl text-base font-semibold leading-8 text-emerald-50/80">نعمل على إضافة واجهة متجر عامة لكل تاجر، تعرض نشاطه وخدماته وأسعاره وطرق التواصل والأسئلة الشائعة. ستتصل بالخدمات والباقات الموجودة لديه، لتكون امتدادًا طبيعيًا للبوت ولوحة التحكم.</p>
+            <p className="mt-6 max-w-xl border-r border-emerald-300/40 pr-4 text-sm font-bold leading-7 text-emerald-100">هذه الميزة غير مفعّلة الآن ولن تظهر للتجار قبل اكتمالها واختبارها. عند الإطلاق، سيحصل كل تاجر على رابط متجر ويمكنه ربط دومينه الخاص لاحقًا.</p>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-emerald-200/15 bg-[#08150f] shadow-[0_26px_62px_rgba(0,0,0,0.22)]">
+            <div className="flex items-center justify-between border-b border-white/8 px-5 py-4"><div className="flex items-center gap-2 text-sm font-black text-white"><Store className="size-4 text-emerald-300" />متجر التاجر</div><span className="rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-[10px] font-black text-amber-100">قيد التطوير</span></div>
+            <div className="p-5 sm:p-6"><div className="border-b border-white/8 pb-5"><p className="text-xl font-black text-white">واجهة واضحة لخدمات التاجر</p><p className="mt-2 text-sm font-semibold text-zinc-400">اسم النشاط، وصفه، وسائل التواصل، وخدماته في مكان عام واحد.</p></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="border border-white/8 bg-[#0b1b14] p-4"><p className="text-sm font-black text-white">الخدمات والباقات</p><p className="mt-2 text-xs font-semibold leading-6 text-zinc-400">تصنيفات، أسعار، مدة الاشتراك وتوفر الخدمة.</p></div><div className="border border-white/8 bg-[#0b1b14] p-4"><p className="text-sm font-black text-white">التواصل والشراء</p><p className="mt-2 text-xs font-semibold leading-6 text-zinc-400">زر بوت أو واتساب، وطرق دفع ومعلومات دعم التاجر.</p></div></div><div className="mt-5 flex items-center justify-between border-t border-white/8 pt-4 text-xs font-bold text-zinc-500"><span>تصور للميزة القادمة</span><span className="text-emerald-200">سيتم إطلاقها بعد الاختبار</span></div></div>
+          </div>
         </div>
       </section>
 
