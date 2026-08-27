@@ -61,3 +61,33 @@ body {
   outline: 2px solid #34d399;
   outline-offset: 2px;
 }
+
+/* هوية الصفحات العامة فقط: لا تمتد إلى لوحات التحكم. */
+.public-shell {
+  color-scheme: dark;
+}
+
+.public-shell ::selection {
+  background: #34d399;
+  color: #062116;
+}
+
+.public-shell :where(a, button, input, summary) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.public-shell :where(input)::selection {
+  background: #6ee7b7;
+  color: #062116;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-shell *,
+  .public-shell *::before,
+  .public-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
